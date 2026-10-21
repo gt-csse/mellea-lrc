@@ -8,8 +8,8 @@ from mellea_lrc.extraction.attribute_short_reporter_citations import attribute_s
 from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE as DISCOVERY
 from mellea_lrc.extraction.find_short_reporter_citations import find_short_reporter_citations
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewer
-from mellea_lrc.extraction.predict_short_reporter_fields import SUBSTAGE as PREDICTION
-from mellea_lrc.extraction.predict_short_reporter_fields import predict_short_reporter_fields
+from mellea_lrc.extraction.predict_short_reporter_fields_ml import SUBSTAGE as PREDICTION
+from mellea_lrc.extraction.predict_short_reporter_fields_ml import predict_short_reporter_fields_ml
 from mellea_lrc.extraction.resolve_short_reporter_case_names import SUBSTAGE as CASE_NAMES
 from mellea_lrc.extraction.resolve_short_reporter_case_names import resolve_short_reporter_case_names
 from mellea_lrc.extraction.resolve_short_reporter_colocations import SUBSTAGE as COLOCATIONS
@@ -29,7 +29,7 @@ async def grow_short_reporter_leaves(
     checkpoint: Checkpoint | None = None,
 ) -> Document:
     fields = field_extraction or FieldExtractionConfig.from_env()
-    _require_stage_prefix(document, STAGE)
+    _require_stage_prefix(document, STAGE, omitted_substages=() if fields.ml_enabled else (PREDICTION,))
     if fields.ml_enabled:
         for citation in document.short_reporters:
             if citation.ml_field_reading is not None:
@@ -41,8 +41,8 @@ async def grow_short_reporter_leaves(
     if COLOCATIONS not in document.substage_runs:
         document = resolve_short_reporter_colocations(document)
         _save_checkpoint(document, checkpoint)
-    if PREDICTION not in document.substage_runs:
-        document = predict_short_reporter_fields(document, fields)
+    if fields.ml_enabled and PREDICTION not in document.substage_runs:
+        document = predict_short_reporter_fields_ml(document, fields)
         _save_checkpoint(document, checkpoint)
     if CASE_NAMES not in document.substage_runs:
         document = resolve_short_reporter_case_names(document, field_extraction=fields)

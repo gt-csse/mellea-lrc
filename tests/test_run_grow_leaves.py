@@ -21,14 +21,13 @@ from mellea_lrc.api import (
 )
 from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.extraction.find_short_reporter_citations import find_short_reporter_citations
-from mellea_lrc.extraction.predict_short_reporter_fields import predict_short_reporter_fields
-from mellea_lrc.field_extraction.models import MLFieldPrediction
+from mellea_lrc.extraction.predict_short_reporter_fields_ml import predict_short_reporter_fields_ml
+from mellea_lrc.model.citations.ml_field_reading import MLFieldPrediction
 from mellea_lrc.parsing.span import Span
 
 SHORT_PREFIX = (
     "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
     "grow_leaves.grow_short_reporter_leaves.resolve_colocations",
-    "grow_leaves.grow_short_reporter_leaves.predict_fields",
     "grow_leaves.grow_short_reporter_leaves.resolve_case_names",
     "grow_leaves.grow_short_reporter_leaves.attribute_citations",
 )
@@ -37,7 +36,7 @@ SHORT_PREFIX = (
 @pytest.fixture(autouse=True)
 def _mock_native_source_boundary(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
     )
     monkeypatch.chdir(tmp_path)
     # These fixtures isolate workflow persistence; real metadata/tag validation
@@ -46,18 +45,15 @@ def _mock_native_source_boundary(tmp_path, monkeypatch):
 
 
 def _read_short_names(document: Document) -> Document:
-    grouped = resolve_short_reporter_colocations(document)
-    predicted = predict_short_reporter_fields(grouped, FieldExtractionConfig.from_env())
-    return resolve_short_reporter_case_names(predicted)
+    return resolve_short_reporter_case_names(resolve_short_reporter_colocations(document))
 
 
 def _short_stages(create, attribute):
     return (
         (SHORT_PREFIX[0], create),
         (SHORT_PREFIX[1], resolve_short_reporter_colocations),
-        (SHORT_PREFIX[2], predict_short_reporter_fields),
-        (SHORT_PREFIX[3], resolve_short_reporter_case_names),
-        (SHORT_PREFIX[4], attribute),
+        (SHORT_PREFIX[2], resolve_short_reporter_case_names),
+        (SHORT_PREFIX[3], attribute),
     )
 
 
@@ -132,7 +128,7 @@ def test_runner_resumes_from_stage_31_without_replaying_discovery_or_calling_mod
         if name
         not in {
             *SHORT_PREFIX,
-            "grow_leaves.grow_short_reporter_leaves.predict_fields",
+            "grow_leaves.grow_short_reporter_leaves.predict_fields_ml",
             "grow_leaves.grow_reference_leaves.find_reference_citations",
             "grow_leaves.grow_reference_leaves.attribute_citations",
         }
@@ -302,7 +298,7 @@ def test_runner_resumes_the_name_checkpoint_before_short_attribution(
     output = Document.model_validate_json((resumed / "documents" / "filing.txt.json").read_text())
     assert calls == ["creation", "attribution", "attribution"]
     assert output.get_substage(SHORT_PREFIX[0]) == created
-    assert output.get_substage(SHORT_PREFIX[3]) == named
+    assert output.get_substage(SHORT_PREFIX[2]) == named
     assert output.short_reporters[0].root_id[-1].value == roots.roots[0].id
     assert json.loads((run_dir / "run.json").read_text())["status"] == "complete"
 
@@ -519,13 +515,7 @@ def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_disp
         calls.append(document)
         assert review_leaves is False
         assert field_extraction == FieldExtractionConfig(
-            ml_enabled=False,
-            case_name="RULE",
-            court="RULE",
-            date="RULE",
-            pin_cite="RULE",
-            context_before=260,
-            context_after=260,
+            ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
         )
 
         def save(result):
@@ -564,6 +554,7 @@ def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_disp
         name
         for name, _ in runner._SUBSTAGES
         if name != "grow_leaves.grow_supra_leaves.review_attributions_llm"
+        and not name.endswith(".predict_fields_ml")
     )
     assert completed.substage_runs[-len(expected) :] == expected
     assert calls == [roots, saved]
@@ -595,24 +586,20 @@ def test_ml_partial_runner_saves_raw_prediction_and_resumes_without_replaying_in
     }
     config = FieldExtractionConfig.from_env(environ=settings)
     (tmp_path / ".env").write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
-    ml_substage = "grow_leaves.grow_short_reporter_leaves.predict_fields"
+    ml_substage = "grow_leaves.grow_short_reporter_leaves.predict_fields_ml"
     calls, inferences = [], []
     interrupted = True
 
     class Reader:
-        def predict_many(self, contexts):
-            inferences.append(contexts)
-            context = contexts[0]
-            source_offset = context.source_span.start
-            name_start = source_offset + context.text.rindex(
-                "Smith", 0, context.locator.start - source_offset
-            )
+        def predict_many(self, source, locator_spans):
+            inferences.append(locator_spans)
+            name_start = source.rindex("Smith", 0, locator_spans[0].start)
             return (
                 MLFieldPrediction(
                     model_id=config.model_id,
                     revision=config.revision,
                     variant=config.variant,
-                    context_span=context.source_span,
+                    context_span=Span(0, len(source)),
                     case_name=Span(name_start, name_start + len("Smith")),
                 ),
             )
@@ -624,7 +611,7 @@ def test_ml_partial_runner_saves_raw_prediction_and_resumes_without_replaying_in
         if interrupted:
             interrupted = False
             raise RuntimeError("Interrupted before span inference")
-        return predict_short_reporter_fields(document, config, ml_reader=Reader())
+        return predict_short_reporter_fields_ml(document, config, reader=Reader())
 
     # The model is supplied by this offline fixture; no checkpoint download is needed.
     monkeypatch.setattr(FieldExtractionConfig, "validate_runtime", lambda self: None)
@@ -640,7 +627,7 @@ def test_ml_partial_runner_saves_raw_prediction_and_resumes_without_replaying_in
                 input_documents,
                 input_substage="grow_roots.form_root_groups.form_roots",
                 review_leaves=False,
-                stop_after=SHORT_PREFIX[3],
+                stop_after=SHORT_PREFIX[2],
             )
         )
     run_dir = next((tmp_path / "ml-results" / "primary").iterdir())
@@ -652,7 +639,7 @@ def test_ml_partial_runner_saves_raw_prediction_and_resumes_without_replaying_in
     assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
     output = Document.model_validate_json(artifact.read_bytes())
     assert output.get_substage(SHORT_PREFIX[1]) == before
-    assert output.substage_runs[-4:] == SHORT_PREFIX[:4]
+    assert output.substage_runs[-4:] == (*SHORT_PREFIX[:2], ml_substage, SHORT_PREFIX[2])
     cached = output.get_substage(ml_substage)
     assert not cached.short_reporters[0].case_name
     assert cached.short_reporters[0].ml_field_reading is not None

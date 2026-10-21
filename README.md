@@ -29,33 +29,18 @@ fails, the last saved checkpoint remains available. The output file is replaced
 when rerunning the command; it must be different from the source document.
 Plain-text input is also supported. Run `uv run mellea-lrc validate --help` for usage.
 
-## Citation-field readers
+## Rule and ML field extraction
 
-For a rule baseline without LLM or model dependencies, install the base package
-and call the standalone reader:
+Locator discovery and citation structure remain part of the Document pipeline.
+Rule readers use neighboring citations, colocation groups, and known case names.
+Optional ML inference predicts four source spans in one substage and saves them
+on each citation. The existing case-name, court, date, and pincite substages then
+select `RULE` or `ML` independently and normalize the selected spans.
 
-```python
-from mellea_lrc.field_extraction import LocatorContext, RuleFieldReader, Span
-
-text = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009)."
-start = text.index("556 U.S. 662")
-end = start + len("556 U.S. 662")
-context = LocatorContext(
-    text=text,
-    source_span=Span(0, len(text)),
-    locator=Span(start, end),
-    kind="reporter",
-    name_before=Span(0, start),
-    court_date_after=Span(end, len(text)),
-    pin_region=Span(end, len(text)),
-)
-prediction = RuleFieldReader().predict(context)
-# case_name, court, date, pin_cite are absolute source spans or None.
-```
-
-`MLCiteReader` uses the same input and four-span contract. Neither reader
-normalizes fields or needs a Document. See [field extraction](docs/Extraction.md#standalone-rule-and-ml-readers)
-for baseline integration and installation extras.
+Use the existing `grow_roots` and `grow_leaves` reports to compare policies on the
+same corpus. The standalone ML-cite training project evaluates its own datasets;
+it does not import a reduced version of this project's rule pipeline.
+See [field extraction](docs/Extraction.md#ml-prediction-and-field-sources).
 
 ## Python API
 
@@ -97,30 +82,12 @@ print(document.full_locators, document.roots)
 
 `grow_roots` composes `discover_root_locators`, `read_root_fields`, and `form_root_groups`. Pass `hunt_dockets=True` to enable its docket-hunting substage. The document persists citation histories, site reviews, and one typed checkpoint log, `runs`. `get_substage("grow_roots.discover_root_locators.hunt_docket_locators")` restores the atomic result; `get_stage("grow_roots.discover_root_locators")` restores the completed group. Both return exact snapshots and raise if their checkpoint has not completed. See [extraction](docs/Extraction.md), [validation](docs/Validation.md), and [preprocessing](docs/Preprocessing.md).
 
-A `Path` reads a file; a `str` is the document text itself. The `pipeline` extra
-installs workflow dependencies; the `preprocessing` dependency group includes
-that extra and Docling for PDFs and other formatted files. Repository development
-installs these through the default `dev` group. Run the active tests with `uv run pytest`.
-
-The base package installs only the rule field reader and its parsing
-dependencies. Install it in another project without the pipeline or ML runtime:
-
-```bash
-uv add "mellea-lrc @ git+https://github.com/gt-csse/mellea-lrc.git@feat/citation-checking"
-```
-
-For the complete Python API or CLI outside this repository, select
-`mellea-lrc[pipeline]` instead. Add the `ml-cite` extra when ML field inference is
-needed; it is independent of the pipeline extra.
-
-Both readers expose `predict(context)` and return four optional field spans.
-The required `predict_fields` substage constructs each locator context once,
-passes that same object to both readers, and saves rule results and optional ML
-results. Neither reader discovers locators or changes the supplied context.
-Subsequent field substages select their configured saved spans, normalize them,
-and retain the existing court-inference fallback.
-See [field extraction](docs/Extraction.md#shared-field-prediction-and-field-sources)
-for the standalone API and context requirements.
+A `Path` reads a file; a `str` is the document text itself. The base package
+includes the Document workflows and their runtime dependencies. The
+`preprocessing` dependency group adds Docling for PDFs and other formatted
+files. The optional `ml-cite` extra adds the ML model runtime. Repository
+installation is shown in the quick start; run the active tests with
+`uv run pytest`.
 
 ## Runtime configuration
 

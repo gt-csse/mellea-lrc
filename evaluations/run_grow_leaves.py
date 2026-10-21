@@ -24,7 +24,7 @@ from mellea_lrc.api import (
     find_short_reporter_citations,
     find_supra_citations,
     grow_leaves,
-    predict_short_reporter_fields,
+    predict_short_reporter_fields_ml,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
     resolve_supra_case_names,
@@ -41,7 +41,7 @@ _RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 _SUBSTAGES = (
     ("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations", find_short_reporter_citations),
     ("grow_leaves.grow_short_reporter_leaves.resolve_colocations", resolve_short_reporter_colocations),
-    ("grow_leaves.grow_short_reporter_leaves.predict_fields", predict_short_reporter_fields),
+    ("grow_leaves.grow_short_reporter_leaves.predict_fields_ml", predict_short_reporter_fields_ml),
     ("grow_leaves.grow_short_reporter_leaves.resolve_case_names", resolve_short_reporter_case_names),
     ("grow_leaves.grow_short_reporter_leaves.attribute_citations", attribute_short_reporter_citations),
     ("grow_leaves.grow_reference_leaves.find_reference_citations", find_reference_citations),
@@ -125,13 +125,16 @@ async def run(
         (name, call)
         for name, call in _SUBSTAGES
         if (name != "grow_leaves.grow_supra_leaves.review_attributions_llm" or review_leaves)
+        and (not name.endswith(".predict_fields_ml") or field_extraction.ml_enabled)
     ]
     # Any completed leaf checkpoint can be an input too. The one cumulative
     # Document supplies both the old history and the remaining substage boundary.
     names = [name for name, _ in stages]
     enabled = tuple(names)
     all_names = tuple(name for name, _ in stages)
-    omitted = () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
+    omitted = (
+        () if field_extraction.ml_enabled else ("grow_leaves.grow_short_reporter_leaves.predict_fields_ml",)
+    ) + (() if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",))
     if stop_after is not None:
         if stop_after not in names:
             raise ValueError(f"Stop substage is not enabled: {stop_after}")
@@ -207,7 +210,7 @@ async def run(
                         correct_leaf_fields,
                     ):
                         result = call(document, review=review_leaves)
-                    elif substage == "grow_leaves.grow_short_reporter_leaves.predict_fields":
+                    elif substage == "grow_leaves.grow_short_reporter_leaves.predict_fields_ml":
                         result = call(document, config=field_extraction)
                     elif substage == "grow_leaves.grow_short_reporter_leaves.resolve_case_names":
                         result = call(document, field_extraction=field_extraction)

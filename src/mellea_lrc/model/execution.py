@@ -76,12 +76,13 @@ WORKFLOW_CATALOG: tuple[WorkflowDefinition, ...] = (
                 (
                     "resolve_docket_entries",
                     "resolve_colocations",
-                    "predict_fields",
+                    "predict_fields_ml",
                     "resolve_case_names",
                     "resolve_courts",
                     "resolve_dates",
                     "resolve_pin_cites",
                 ),
+                optional_substages=("predict_fields_ml",),
             ),
             _stage(
                 "grow_roots",
@@ -149,10 +150,11 @@ WORKFLOW_CATALOG: tuple[WorkflowDefinition, ...] = (
                 (
                     "find_short_reporter_citations",
                     "resolve_colocations",
-                    "predict_fields",
+                    "predict_fields_ml",
                     "resolve_case_names",
                     "attribute_citations",
                 ),
+                optional_substages=("predict_fields_ml",),
             ),
             _stage(
                 "grow_leaves",

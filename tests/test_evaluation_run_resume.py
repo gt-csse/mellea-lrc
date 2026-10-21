@@ -38,13 +38,7 @@ from mellea_lrc.model.execution import stage_for_substage
 from mellea_lrc.providers.courtlistener import CourtListenerClient
 
 _RULE_FIELDS = FieldExtractionConfig(
-    ml_enabled=False,
-    case_name="RULE",
-    court="RULE",
-    date="RULE",
-    pin_cite="RULE",
-    context_before=260,
-    context_after=260,
+    ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
 )
 
 _ROOT_WORKFLOW = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
@@ -71,19 +65,20 @@ def _ml_field_settings() -> dict[str, str]:
     }
 
 
-def test_end_to_end_requires_shared_prediction_before_the_same_consuming_field_steps():
-    root = "grow_roots.read_root_fields.predict_fields"
-    short = "grow_leaves.grow_short_reporter_leaves.predict_fields"
-    selected = runner._E2E_SUBSTAGES
-    assert selected.count(root) == selected.count(short) == 1
-    assert root in runner._ROOT_SUBSTAGES
-    assert selected.index(root) == selected.index("grow_roots.read_root_fields.resolve_colocations") + 1
+def test_end_to_end_ml_adds_inference_before_the_same_consuming_field_steps():
+    config = FieldExtractionConfig.from_env(environ=_ml_field_settings())
+    selected = runner._enabled_field_substages(runner._E2E_SUBSTAGES, config)
+    root_ml = "grow_roots.read_root_fields.predict_fields_ml"
+    short_ml = "grow_leaves.grow_short_reporter_leaves.predict_fields_ml"
+    assert selected.count(root_ml) == selected.count(short_ml) == 1
+    assert tuple(name for name in selected if name not in {root_ml, short_ml}) == runner._E2E_SUBSTAGES
+    assert selected.index(root_ml) == selected.index("grow_roots.read_root_fields.resolve_colocations") + 1
     assert (
-        selected.index(short)
+        selected.index(short_ml)
         == selected.index("grow_leaves.grow_short_reporter_leaves.resolve_colocations") + 1
     )
-    assert selected[selected.index(root) + 1].endswith(".resolve_case_names")
-    assert selected[selected.index(short) + 1].endswith(".resolve_case_names")
+    assert selected[selected.index(root_ml) + 1].endswith(".resolve_case_names")
+    assert selected[selected.index(short_ml) + 1].endswith(".resolve_case_names")
 
 
 @pytest.mark.parametrize("change", ["missing", "field_source", "revision", "context"])
@@ -143,7 +138,7 @@ def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
 def _courtlistener_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
         "COURTLISTENER_BASE_URL=https://proxy.example/api/rest/v4/\n"
         "COURTLISTENER_TIMEOUT_SECONDS=47\n"
         "COURTLISTENER_API_TOKEN=unused-main-token\n"
@@ -216,7 +211,7 @@ def _complete_with_checkpoints(
 @pytest.fixture(autouse=True)
 def _offline_body_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
     )
     monkeypatch.chdir(tmp_path)
     # These tests exercise checkpoint orchestration; native source metadata has
@@ -259,7 +254,7 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
     ) -> Document:
         assert hunt_dockets and review_docket_roots
         calls.append(Path(document.source_path or "").name)
-        return _complete(document, runner._RUN_SUBSTAGES[:12])
+        return _complete(document, runner._RUN_SUBSTAGES[:11])
 
     async def fake_validate(
         document: Document,
@@ -267,7 +262,7 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
         retrospective_date: date | None = None,
         checkpoint: Callable[[Document], None] | None = None,
     ) -> Document:
-        document = _complete_with_checkpoints(document, runner._RUN_SUBSTAGES[12:_BODY_START], checkpoint)
+        document = _complete_with_checkpoints(document, runner._RUN_SUBSTAGES[11:_BODY_START], checkpoint)
         return _complete_with_checkpoints(document, _BODY_SUBSTAGES, checkpoint)
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
@@ -353,7 +348,7 @@ def test_resume_rejects_a_cumulative_document_with_a_stage_gap_before_provider_w
     results_root = tmp_path / "results"
 
     async def fake_grow(document: Document, **_kwargs: object) -> Document:
-        return _complete(document, runner._RUN_SUBSTAGES[:12])
+        return _complete(document, runner._RUN_SUBSTAGES[:11])
 
     async def interrupt_validation(document: Document, **_kwargs: object) -> Document:
         raise RuntimeError("interrupted after growth")
@@ -365,8 +360,8 @@ def test_resume_rejects_a_cumulative_document_with_a_stage_gap_before_provider_w
     run_dir = next(results_root.iterdir())
     artifact = run_dir / "documents" / "001.txt.json"
     interrupted = Document.model_validate_json(artifact.read_text(encoding="utf-8"))
-    assert interrupted.substage_runs == runner._RUN_SUBSTAGES[:12]
-    invalid = interrupted.complete_substage(runner._RUN_SUBSTAGES[13])
+    assert interrupted.substage_runs == runner._RUN_SUBSTAGES[:11]
+    invalid = interrupted.complete_substage(runner._RUN_SUBSTAGES[12])
     artifact.write_text(invalid.model_dump_json(), encoding="utf-8")
 
     async def unexpected_provider(*_args: object, **_kwargs: object) -> Document:
@@ -397,11 +392,11 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
         checkpoint=None,
     ) -> Document:
         calls.append("grow")
-        return _complete(document, runner._RUN_SUBSTAGES[:12])
+        return _complete(document, runner._RUN_SUBSTAGES[:11])
 
     def retrieve(document: Document) -> Document:
         calls.append("12.1")
-        return document.complete_substage(runner._RUN_SUBSTAGES[12])
+        return document.complete_substage(runner._RUN_SUBSTAGES[11])
 
     def review(document: Document) -> Document:
         nonlocal fail_review
@@ -409,7 +404,7 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
         if fail_review:
             fail_review = False
             raise RuntimeError("interrupted during reporter review")
-        return document.complete_substage(runner._RUN_SUBSTAGES[14])
+        return document.complete_substage(runner._RUN_SUBSTAGES[13])
 
     def sync_stage(substage: str):
         def run(document: Document) -> Document:
@@ -484,15 +479,15 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
     checkpoint = run_dir / "documents" / "001.txt.json"
     assert checkpoint.exists()
     saved = Document.model_validate_json(checkpoint.read_text(encoding="utf-8"))
-    assert saved.substage_runs == runner._RUN_SUBSTAGES[:14]
+    assert saved.substage_runs == runner._RUN_SUBSTAGES[:13]
 
     assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
     final = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text())
     assert final.substage_runs == runner._RUN_SUBSTAGES
-    assert final.get_substage(runner._RUN_SUBSTAGES[13]) == saved
+    assert final.get_substage(runner._RUN_SUBSTAGES[12]) == saved
     assert calls.count("grow") == 1
     assert calls.count("12.1") == 1
-    assert calls.count(runner._RUN_SUBSTAGES[13]) == 1
+    assert calls.count(runner._RUN_SUBSTAGES[12]) == 1
     assert calls.count("13.1") == 2
 
 
@@ -587,15 +582,15 @@ def test_rewind_completed_document_to_reporter_retrieval_runs_later_reviews(
             tmp_path / "results",
             None,
             from_checkpoint_documents=checkpoint_dir,
-            checkpoint_substage=runner._RUN_SUBSTAGES[12],
+            checkpoint_substage=runner._RUN_SUBSTAGES[11],
         )
     )
     final = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text())
-    assert final.get_substage(runner._RUN_SUBSTAGES[12]) == completed.get_substage(runner._RUN_SUBSTAGES[12])
+    assert final.get_substage(runner._RUN_SUBSTAGES[11]) == completed.get_substage(runner._RUN_SUBSTAGES[11])
     assert final.substage_runs == runner._RUN_SUBSTAGES
-    assert calls == list(runner._RUN_SUBSTAGES[13:_BODY_START])
+    assert calls == list(runner._RUN_SUBSTAGES[12:_BODY_START])
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-    assert record["checkpoint_substage"] == runner._RUN_SUBSTAGES[12]
+    assert record["checkpoint_substage"] == runner._RUN_SUBSTAGES[11]
     assert record["from_checkpoint_documents"] == str(checkpoint_dir)
 
 
@@ -607,10 +602,10 @@ def test_rewind_rejects_invalid_validation_checkpoint_before_providers(
     source = data_root / "primary" / "documents_txt" / "001.txt"
     checkpoint_dir = tmp_path / "checkpoint-documents"
     checkpoint_dir.mkdir()
-    selected_stage = runner._RUN_SUBSTAGES[12]
+    selected_stage = runner._RUN_SUBSTAGES[11]
     if invalid == "unsupported-substage":
         document = _complete(Document.from_source(source), runner._RUN_SUBSTAGES)
-        selected_stage = runner._RUN_SUBSTAGES[11]
+        selected_stage = runner._RUN_SUBSTAGES[10]
         error = "Unsupported validation checkpoint"
     else:
         document = _complete(Document.from_source(source), (*runner._ROOT_SUBSTAGES, selected_stage))
@@ -667,27 +662,27 @@ def test_resume_from_reporter_llm_checkpoint_only_runs_later_stages(
 
     async def unique(document: Document) -> Document:
         calls.append("14")
-        return document.complete_substage(runner._RUN_SUBSTAGES[16])
+        return document.complete_substage(runner._RUN_SUBSTAGES[15])
 
     async def ambiguous(document: Document) -> Document:
         calls.append("15")
-        return document.complete_substage(runner._RUN_SUBSTAGES[17])
+        return document.complete_substage(runner._RUN_SUBSTAGES[16])
 
     def docket(document: Document) -> Document:
         calls.append("16")
-        return document.complete_substage(runner._RUN_SUBSTAGES[18])
+        return document.complete_substage(runner._RUN_SUBSTAGES[17])
 
     async def docket_review(document: Document) -> Document:
         calls.append("17")
-        return document.complete_substage(runner._RUN_SUBSTAGES[19])
+        return document.complete_substage(runner._RUN_SUBSTAGES[18])
 
     def govinfo(document: Document) -> Document:
         calls.append("18")
-        return document.complete_substage(runner._RUN_SUBSTAGES[20])
+        return document.complete_substage(runner._RUN_SUBSTAGES[19])
 
     async def govinfo_review(document: Document) -> Document:
         calls.append("19")
-        return document.complete_substage(runner._RUN_SUBSTAGES[21])
+        return document.complete_substage(runner._RUN_SUBSTAGES[20])
 
     monkeypatch.setattr(runner, "review_unique_reporter_roots_llm", unique)
     monkeypatch.setattr(runner, "review_ambiguous_reporter_roots_llm", ambiguous)
@@ -719,9 +714,9 @@ def test_reporter_review_replay_reuses_saved_docket_lookup(
     ready = asyncio.run(grow_roots(Document.from_source(source_path), hunt_dockets=True)).get_substage(
         runner._ROOT_SUBSTAGE
     )
-    ready = _complete(ready, runner._REPORTER_REVIEW_INPUT_SUBSTAGES[11:])
+    ready = _complete(ready, runner._REPORTER_REVIEW_INPUT_SUBSTAGES[10:])
     root = next(root for root in ready.roots if isinstance(root, FullDocketCitation))
-    prior = _complete(ready, runner._RUN_SUBSTAGES[16:18])
+    prior = _complete(ready, runner._RUN_SUBSTAGES[15:17])
     recorded = root.record(runner._DOCKET_LOOKUP_SUBSTAGE)
     lookup = DocketLookup(
         node_id=recorded.nodes[-1].id,
@@ -735,22 +730,22 @@ def test_reporter_review_replay_reuses_saved_docket_lookup(
     (checkpoint_dir / "001.txt.json").write_text(prior.model_dump_json(), encoding="utf-8")
 
     async def unique(document: Document) -> Document:
-        return document.complete_substage(runner._RUN_SUBSTAGES[16])
+        return document.complete_substage(runner._RUN_SUBSTAGES[15])
 
     async def ambiguous(document: Document) -> Document:
-        return document.complete_substage(runner._RUN_SUBSTAGES[17])
+        return document.complete_substage(runner._RUN_SUBSTAGES[16])
 
     def unexpected_lookup(_document: Document) -> Document:
         pytest.fail("Saved docket lookup must be reused")
 
     async def docket_review(document: Document) -> Document:
-        return document.complete_substage(runner._RUN_SUBSTAGES[19])
+        return document.complete_substage(runner._RUN_SUBSTAGES[18])
 
     def govinfo(document: Document) -> Document:
-        return document.complete_substage(runner._RUN_SUBSTAGES[20])
+        return document.complete_substage(runner._RUN_SUBSTAGES[19])
 
     async def govinfo_review(document: Document) -> Document:
-        return document.complete_substage(runner._RUN_SUBSTAGES[21])
+        return document.complete_substage(runner._RUN_SUBSTAGES[20])
 
     monkeypatch.setattr(runner, "review_unique_reporter_roots_llm", unique)
     monkeypatch.setattr(runner, "review_ambiguous_reporter_roots_llm", ambiguous)
@@ -779,11 +774,11 @@ def test_resume_from_docket_review_checkpoint_only_runs_govinfo_stages(
 
     def govinfo(document: Document) -> Document:
         calls.append("18")
-        return document.complete_substage(runner._RUN_SUBSTAGES[20])
+        return document.complete_substage(runner._RUN_SUBSTAGES[19])
 
     async def govinfo_review(document: Document) -> Document:
         calls.append("19")
-        return document.complete_substage(runner._RUN_SUBSTAGES[21])
+        return document.complete_substage(runner._RUN_SUBSTAGES[20])
 
     monkeypatch.setattr(runner, "retrieve_govinfo_docket_roots", govinfo)
     monkeypatch.setattr(runner, "review_govinfo_docket_roots_llm", govinfo_review)
@@ -1079,7 +1074,7 @@ def test_transient_field_search_stops_before_later_providers_and_retries_its_sta
     stage23 = asyncio.run(
         grow_roots(Document.from_source(source), hunt_dockets=True, review_docket_roots=True)
     )
-    stage23 = _complete(stage23, runner._RUN_SUBSTAGES[12:-1])
+    stage23 = _complete(stage23, runner._RUN_SUBSTAGES[11:-1])
     root = stage23.roots[0].record(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
     stage23 = stage23.replace_citation(
         root.with_route(
@@ -1270,11 +1265,11 @@ def test_resume_rejects_saved_body_search_from_a_different_cutoff(
         number_span=Span(source.index(number), source.index(number) + len(number)),
     )
     ready = ready.add_citation(root).complete_substage(runner._RUN_SUBSTAGES[1])
-    ready = _complete(ready, runner._RUN_SUBSTAGES[2:10])
+    ready = _complete(ready, runner._RUN_SUBSTAGES[2:9])
     ready = ready.replace_citation(root.record(runner._ROOT_SUBSTAGE).with_root(root.id)).complete_substage(
         runner._ROOT_SUBSTAGE
     )
-    ready = _complete(ready, runner._RUN_SUBSTAGES[11:_BODY_START])
+    ready = _complete(ready, runner._RUN_SUBSTAGES[10:_BODY_START])
     checkpoint_dir = tmp_path / "validation-input"
     checkpoint_dir.mkdir()
     (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
@@ -1678,11 +1673,11 @@ def test_transient_stage21_checkpoint_stops_later_work_and_retries_from_stage21(
         number_span=Span(source.index(number), source.index(number) + len(number)),
     )
     ready = ready.add_citation(root).complete_substage(runner._RUN_SUBSTAGES[1])
-    ready = _complete(ready, runner._RUN_SUBSTAGES[2:10])
+    ready = _complete(ready, runner._RUN_SUBSTAGES[2:9])
     ready = ready.replace_citation(root.record(runner._ROOT_SUBSTAGE).with_root(root.id)).complete_substage(
         runner._ROOT_SUBSTAGE
     )
-    ready = _complete(ready, runner._RUN_SUBSTAGES[11:_BODY_START])
+    ready = _complete(ready, runner._RUN_SUBSTAGES[10:_BODY_START])
     checkpoint_dir = tmp_path / "validation-input"
     checkpoint_dir.mkdir()
     (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
@@ -1804,11 +1799,11 @@ def test_transient_body_search_failure_replays_from_failed_provider(
             number_span=Span(source.index(number), source.index(number) + len(number)),
         )
         ready = ready.add_citation(root).complete_substage(runner._RUN_SUBSTAGES[1])
-        ready = _complete(ready, runner._RUN_SUBSTAGES[2:10])
+        ready = _complete(ready, runner._RUN_SUBSTAGES[2:9])
         ready = ready.replace_citation(
             root.record(runner._ROOT_SUBSTAGE).with_root(root.id)
         ).complete_substage(runner._ROOT_SUBSTAGE)
-        ready = _complete(ready, runner._RUN_SUBSTAGES[11:_BODY_START])
+        ready = _complete(ready, runner._RUN_SUBSTAGES[10:_BODY_START])
         (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
 
     cutoff = date(2024, 6, 1)
@@ -1993,7 +1988,7 @@ def test_new_run_stays_failed_when_a_saved_search_is_transiently_incomplete(
         field_extraction,
         checkpoint=None,
     ) -> Document:
-        return _complete(document, runner._RUN_SUBSTAGES[:12])
+        return _complete(document, runner._RUN_SUBSTAGES[:11])
 
     async def fake_validate(
         document: Document,
@@ -2001,7 +1996,7 @@ def test_new_run_stays_failed_when_a_saved_search_is_transiently_incomplete(
         retrospective_date: date | None = None,
         checkpoint: Callable[[Document], None] | None = None,
     ) -> Document:
-        document = _complete_with_checkpoints(document, runner._RUN_SUBSTAGES[12:_BODY_START], checkpoint)
+        document = _complete_with_checkpoints(document, runner._RUN_SUBSTAGES[11:_BODY_START], checkpoint)
         return _complete_with_checkpoints(document, _BODY_SUBSTAGES, checkpoint)
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
@@ -2027,11 +2022,11 @@ def _docket_roots_input(source_path: Path) -> Document:
         number_span=Span(document.text.index(number), document.text.index(number) + len(number)),
     )
     document = document.add_citation(root).complete_substage(runner._RUN_SUBSTAGES[1])
-    document = _complete(document, runner._RUN_SUBSTAGES[2:10])
+    document = _complete(document, runner._RUN_SUBSTAGES[2:9])
     document = document.replace_citation(
         root.record(runner._ROOT_SUBSTAGE).with_root(root.id)
     ).complete_substage(runner._ROOT_SUBSTAGE)
-    return _complete(document, runner._RUN_SUBSTAGES[11:12])
+    return _complete(document, runner._RUN_SUBSTAGES[10:11])
 
 
 def _docket_failure(document: Document, substage: str, *, failure_type="transport_error", status=None):
@@ -2083,7 +2078,7 @@ def test_ordinary_resume_retries_only_the_failed_docket_provider(
 
     async def validate(document, *, checkpoint, **_kwargs):
         nonlocal interrupted
-        for substage in runner._RUN_SUBSTAGES[12:]:
+        for substage in runner._RUN_SUBSTAGES[11:]:
             if substage in document.substage_runs:
                 continue
             calls.append(substage)
@@ -2129,7 +2124,7 @@ def test_preserved_input_with_a_failed_docket_lookup_is_rejected_before_provider
         source_path.write_text("Acme v. Reed, Case No. 2:31-cv-45821.")
         document = _docket_roots_input(source_path)
         for substage in runner._RUN_SUBSTAGES[
-            12 : runner._RUN_SUBSTAGES.index(runner._VALIDATION_INPUT_SUBSTAGE) + 1
+            11 : runner._RUN_SUBSTAGES.index(runner._VALIDATION_INPUT_SUBSTAGE) + 1
         ]:
             if filename == "002.txt" and substage == runner._DOCKET_LOOKUP_SUBSTAGE:
                 document = _docket_failure(document, substage)
@@ -2161,7 +2156,7 @@ def test_preserved_body_failure_is_rejected_before_replaying_its_input(tmp_path,
     source_path.write_text("Acme v. Reed, Case No. 2:31-cv-45821.")
     document = _docket_roots_input(source_path)
     substage = runner._COURTLISTENER_OPINION_SUBSTAGE
-    document = _complete(document, runner._RUN_SUBSTAGES[12 : runner._RUN_SUBSTAGES.index(substage)])
+    document = _complete(document, runner._RUN_SUBSTAGES[11 : runner._RUN_SUBSTAGES.index(substage)])
     root = document.roots[0].record(substage)
     failure = BodyEvidenceFailure(failure_type="transport_error", message="Offline transient failure")
     search = BodySearch(

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from mellea_lrc.configuration import read_env, required_setting
 
 if TYPE_CHECKING:
-    from mellea_lrc.field_extraction.models import MLFieldPrediction
+    from mellea_lrc.model.citations.ml_field_reading import MLFieldPrediction
 
 
 class FieldSource(str, Enum):
@@ -35,8 +35,8 @@ class FieldExtractionConfig(BaseModel):
     revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     variant: str | None = None
     device: str | None = None
-    context_before: int = Field(ge=0, strict=True)
-    context_after: int = Field(ge=0, strict=True)
+    context_before: int | None = Field(default=None, ge=0, strict=True)
+    context_after: int | None = Field(default=None, ge=0, strict=True)
     batch_size: int | None = Field(default=None, ge=1, strict=True)
 
     @field_validator("model_id", "variant", "device")
@@ -65,6 +65,8 @@ class FieldExtractionConfig(BaseModel):
                     "variant",
                     "device",
                     "batch_size",
+                    "context_before",
+                    "context_after",
                 )
                 if getattr(self, name) is None
             ]
@@ -86,8 +88,8 @@ class FieldExtractionConfig(BaseModel):
         return prediction
 
     def ml_reader_config(self):
-        """Pass only model settings into the standalone span reader."""
-        from mellea_lrc.field_extraction.models import MLReaderConfig
+        """Pass model settings into the internal ML span service."""
+        from mellea_lrc.extraction.field_readers.ml_cite.models import MLReaderConfig
 
         if not self.ml_enabled:
             raise ValueError("ML field reader requires ML_ENABLED=true")
@@ -96,7 +98,7 @@ class FieldExtractionConfig(BaseModel):
     def validate_runtime(self) -> None:
         """Fail before document work if an enabled checkpoint cannot be loaded."""
         if self.ml_enabled:
-            from mellea_lrc.field_extraction.ml_cite import get_ml_reader
+            from mellea_lrc.extraction.field_readers.ml_cite import get_ml_reader
 
             get_ml_reader(self.ml_reader_config())
 
@@ -111,8 +113,6 @@ class FieldExtractionConfig(BaseModel):
         settings: dict[str, object] = {"ml_enabled": enabled == "true"}
         for name in ("case_name", "court", "date", "pin_cite"):
             settings[name] = required_setting(values, prefix + name.upper())
-        for name in ("context_before", "context_after"):
-            settings[name] = int(required_setting(values, prefix + name.upper()))
         if enabled == "true":
             for name in (
                 "model_id",
@@ -120,7 +120,11 @@ class FieldExtractionConfig(BaseModel):
                 "variant",
                 "device",
                 "batch_size",
+                "context_before",
+                "context_after",
             ):
                 value = required_setting(values, prefix + name.upper())
-                settings[name] = int(value) if name == "batch_size" else value
+                settings[name] = (
+                    int(value) if name in {"batch_size", "context_before", "context_after"} else value
+                )
         return cls.model_validate(settings)
