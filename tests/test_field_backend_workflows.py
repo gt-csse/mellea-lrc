@@ -26,6 +26,8 @@ from mellea_lrc.workflows.grow_roots.read_root_fields import read_root_fields
 
 SOURCE = "Alpha v. Beta, 123 F.3d 456, 460 (2d Cir. 1997). See Alpha, 123 F.3d at 462."
 RULE = FieldExtractionConfig(
+    context_before=260,
+    context_after=260,
     ml_enabled=False,
     case_name=FieldSource.RULE,
     court=FieldSource.RULE,
@@ -63,25 +65,36 @@ class FakeReader:
     def __init__(self):
         self.calls = []
 
-    def predict_many(self, source, locator_spans, *, contexts=None):
-        self.calls.append((source, locator_spans))
+    def predict_many(self, contexts):
+        self.calls.append(contexts)
         predictions = []
-        for locator in locator_spans:
+        for context in contexts:
+            source = context.text
+            locator = Span(
+                context.locator.start - context.source_span.start,
+                context.locator.end - context.source_span.start,
+            )
             short = " at " in source[locator.start : locator.end]
             name = "Alpha" if short else "Alpha v. Beta"
             name_start = source.rfind(name, 0, locator.start)
-            fields = {"case_name": Span(name_start, name_start + len(name))}
+            fields = {
+                "case_name": Span(
+                    context.source_span.start + name_start, context.source_span.start + name_start + len(name)
+                )
+            }
             # Deliberately different from the root's written pin to prove each
             # reader chooses its configured source rather than the raw cache.
             for field, quote in (("court", "2d Cir."), ("date", "1997"), ("pin_cite", "462")):
                 start = source.index(quote)
-                fields[field] = Span(start, start + len(quote))
+                fields[field] = Span(
+                    context.source_span.start + start, context.source_span.start + start + len(quote)
+                )
             predictions.append(
                 MLFieldPrediction(
                     model_id=ML.model_id,
                     revision=ML.revision,
                     variant=ML.variant,
-                    context_span=Span(0, len(source)),
+                    context_span=context.source_span,
                     **fields,
                 )
             )
@@ -129,7 +142,7 @@ def test_inference_and_field_writes_have_separate_recoverable_checkpoints(reader
     root_snapshots, short_snapshots = [], []
     roots = root_run(Document.from_source(SOURCE), ML, root_snapshots)
     result = short_run(roots, ML, short_snapshots)
-    assert [len(locators) for _, locators in reader.calls] == [1, 1]
+    assert [len(contexts) for contexts in reader.calls] == [1, 1]
     inference = roots.get_substage(ROOT_PREDICTION)
     inferred = inference.full_locators[0]
     assert inferred.ml_field_reading is not None
@@ -324,9 +337,9 @@ def test_rules_are_predicted_once_then_reused_by_all_consumers_and_resume(monkey
     calls = []
     original = RuleFieldReader.predict_many
 
-    def predict(self, source, locators, *, contexts=None):
-        calls.append((source, locators, contexts))
-        return original(self, source, locators, contexts=contexts)
+    def predict(self, contexts):
+        calls.append(contexts)
+        return original(self, contexts)
 
     monkeypatch.setattr(RuleFieldReader, "predict_many", predict)
     roots = root_run(Document.from_source(SOURCE), RULE)

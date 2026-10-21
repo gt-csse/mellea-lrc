@@ -150,8 +150,14 @@ model weights and full-pipeline runtimes are optional extras. It imports neither
 Document/Citation nor stage writers. `parsing/span.py` supplies the shared source
 offset type without importing the application model graph.
 
-Extraction substages adapt document colocation and neighboring-citation bounds,
-cache raw rule and ML readings on citations, select the configured source, and
-append normal field readings. Court inference and typed normalization remain in
-the document layer. Training projects import these readers rather than copy the
-rule implementation.
+The existing prediction substage constructs a `LocatorContext` from the source
+excerpt, target locator, and shared boundaries. That same object is the only
+input to `RuleFieldReader.predict(context)` and `MLCiteReader.predict(context)`.
+Neither reader rediscovers locators, reconstructs context, or trims the excerpt.
+Context construction stays inside the prediction substage; it adds no Document
+API, checkpoint, or durable citation field.
+
+The prediction substage caches raw rule and optional ML readings on citations.
+Later field substages select the configured saved source and append normalized
+field readings. Court inference remains in the court substage. Training projects
+import these readers rather than copy the rule implementation.
