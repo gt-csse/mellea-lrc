@@ -10,6 +10,7 @@ from mellea_lrc.api import (
     find_short_reporter_citations,
     form_roots,
     grow_roots,
+    predict_root_fields,
     resolve_case_names,
     resolve_colocations,
     resolve_courts,
@@ -179,6 +180,7 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
         find_full_reporter_locators,
         find_docket_locators,
         resolve_colocations,
+        predict_root_fields,
         resolve_case_names,
         resolve_courts,
         resolve_dates,
@@ -242,7 +244,7 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
 def test_case_name_reader_keeps_a_printed_fragment_without_inventing_a_party() -> None:
     source = "Gucci America  , 768 F.3d 122 (2d Cir. 2014)."
     document = resolve_case_names(
-        resolve_colocations(find_full_reporter_locators(Document.from_source(source)))
+        predict_root_fields(resolve_colocations(find_full_reporter_locators(Document.from_source(source))))
     )
     reading = document.full_locators[0].case_name[-1]
 
@@ -254,13 +256,19 @@ def test_case_name_reader_keeps_a_printed_fragment_without_inventing_a_party() -
 
 def test_case_name_outcome_distinguishes_not_stated_from_failed_normalization() -> None:
     unstated = resolve_case_names(
-        resolve_colocations(find_full_reporter_locators(Document.from_source("See 550 U.S. 544.")))
+        predict_root_fields(
+            resolve_colocations(find_full_reporter_locators(Document.from_source("See 550 U.S. 544.")))
+        )
     )
     assert unstated.full_locators[0].case_name == ()
     assert unstated.full_locators[0].get_case_name() == CaseName(kind=CaseNameKind.NOT_STATED)
 
     unreadable = resolve_case_names(
-        resolve_colocations(find_full_reporter_locators(Document.from_source("Smith v. ?, 550 U.S. 544.")))
+        predict_root_fields(
+            resolve_colocations(
+                find_full_reporter_locators(Document.from_source("Smith v. ?, 550 U.S. 544."))
+            )
+        )
     )
     assert unreadable.full_locators[0].case_name
     with pytest.raises(ValueError, match="not normalizable"):
@@ -270,7 +278,7 @@ def test_case_name_outcome_distinguishes_not_stated_from_failed_normalization() 
 def test_case_name_reader_keeps_a_procedural_name_with_internal_comma() -> None:
     source = "In  re  Giftcraft  Ltd., Inc. , 645 B.R. 175 (Bankr. S.D.N.Y. 2025)."
     document = resolve_case_names(
-        resolve_colocations(find_full_reporter_locators(Document.from_source(source)))
+        predict_root_fields(resolve_colocations(find_full_reporter_locators(Document.from_source(source))))
     )
     reading = document.full_locators[0].case_name[-1]
 
@@ -378,6 +386,7 @@ def test_completed_extraction_stages_reject_repeat_calls() -> None:
         find_docket_locators,
         resolve_docket_entries,
         resolve_colocations,
+        predict_root_fields,
         resolve_case_names,
         resolve_courts,
         resolve_dates,
@@ -405,6 +414,7 @@ def test_synchronous_pipeline_and_json_roundtrip() -> None:
         "grow_roots.discover_root_locators.find_docket_locators",
         "grow_roots.read_root_fields.resolve_docket_entries",
         "grow_roots.read_root_fields.resolve_colocations",
+        "grow_roots.read_root_fields.predict_fields",
         "grow_roots.read_root_fields.resolve_case_names",
         "grow_roots.read_root_fields.resolve_courts",
         "grow_roots.read_root_fields.resolve_dates",
@@ -652,6 +662,7 @@ def test_every_checkpoint_and_withdrawal_restore_preserve_history() -> None:
         find_full_reporter_locators,
         find_docket_locators,
         resolve_colocations,
+        predict_root_fields,
         resolve_case_names,
         resolve_courts,
         resolve_dates,
@@ -701,6 +712,7 @@ def test_get_substage_reconstructs_each_committed_document() -> None:
         ("grow_roots.discover_root_locators.find_full_reporter_locators", find_full_reporter_locators),
         ("grow_roots.discover_root_locators.find_docket_locators", find_docket_locators),
         ("grow_roots.read_root_fields.resolve_colocations", resolve_colocations),
+        ("grow_roots.read_root_fields.predict_fields", predict_root_fields),
         ("grow_roots.read_root_fields.resolve_case_names", resolve_case_names),
         ("grow_roots.read_root_fields.resolve_courts", resolve_courts),
         ("grow_roots.read_root_fields.resolve_dates", resolve_dates),

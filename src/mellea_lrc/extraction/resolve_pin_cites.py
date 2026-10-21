@@ -1,12 +1,8 @@
-"""Read pinpoint references adjacent to full locator sites."""
+"""Normalize the saved pinpoint span for each full citation."""
 
-from __future__ import annotations
-
-from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.config.field_extraction import FieldExtractionConfig
-from mellea_lrc.extraction.context.field_predictions import with_root_rule_prediction
+from mellea_lrc.config.field_extraction import FieldExtractionConfig, FieldSource
 from mellea_lrc.extraction.context.full_citations import require_structure
-from mellea_lrc.extraction.predict_root_fields_ml import SUBSTAGE as ML_PREDICTION
+from mellea_lrc.extraction.predict_root_fields import SUBSTAGE as PREDICTION
 from mellea_lrc.model.document import Document
 
 SUBSTAGE = "grow_roots.read_root_fields.resolve_pin_cites"
@@ -14,25 +10,27 @@ SUBSTAGE = "grow_roots.read_root_fields.resolve_pin_cites"
 
 def resolve_pin_cites(
     document: Document,
-    rules: ExtractionRules | None = None,
     *,
     field_extraction: FieldExtractionConfig | None = None,
 ) -> Document:
-    """Read an adjacent pin, retaining malformed continuations for later review."""
+    """Select a cached span; parsing belongs to the preceding prediction substage."""
     if SUBSTAGE in document.substage_runs:
         raise ValueError(f"Substage already completed: {SUBSTAGE}")
     require_structure(document)
+    if PREDICTION not in document.substage_runs:
+        raise ValueError("Predict root fields before normalizing citation fields")
     fields = field_extraction or FieldExtractionConfig.from_env()
-    if fields.pin_cite == "ml" and ML_PREDICTION not in document.substage_runs:
-        raise ValueError("Predict ML root fields before using ML pinpoint spans")
-    config = rules or stable()
-    for citation in document.full_locators:
-        updated = with_root_rule_prediction(citation.record(SUBSTAGE), document, config)
-        prediction = (
-            fields.validate_prediction(updated.get_ml_field_prediction())
-            if fields.pin_cite == "ml"
-            else updated.get_rule_field_prediction()
+    citations = document.full_locators
+    predictions = []
+    for citation in citations:
+        rule_prediction = citation.get_rule_field_prediction()
+        predictions.append(
+            fields.validate_prediction(citation.get_ml_field_prediction())
+            if fields.pin_cite is FieldSource.ML
+            else rule_prediction
         )
+    for citation, prediction in zip(citations, predictions, strict=True):
+        updated = citation.record(SUBSTAGE)
         if prediction.pin_cite is not None:
             updated = updated.with_pin_cite(document.text, prediction.pin_cite)
         document = document.replace_citation(updated)

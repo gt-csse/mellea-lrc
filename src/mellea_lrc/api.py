@@ -10,7 +10,7 @@ Locator-body and intended-case review are parts of root validation.
 """
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.config.field_extraction import FieldExtractionConfig
+from mellea_lrc.config.field_extraction import FieldExtractionConfig, FieldSource
 from mellea_lrc.extraction import (
     attribute_reference_citations,
     attribute_short_reporter_citations,
@@ -19,8 +19,8 @@ from mellea_lrc.extraction import (
     find_short_reporter_citations,
     form_roots,
     hunt_docket_locators,
-    predict_root_fields_ml,
-    predict_short_reporter_fields_ml,
+    predict_root_fields,
+    predict_short_reporter_fields,
     reassign_docket_roots_llm,
     resolve_case_names,
     resolve_colocations,
@@ -102,6 +102,7 @@ __all__ = [
     "Document",
     "ExtractionRules",
     "FieldExtractionConfig",
+    "FieldSource",
     "attribute_id_citations",
     "attribute_reference_citations",
     "attribute_short_reporter_citations",
@@ -133,8 +134,8 @@ __all__ = [
     "judge_unique_reporter_roots_rule",
     "lookup_docket_roots",
     "lookup_reporter_roots",
-    "predict_root_fields_ml",
-    "predict_short_reporter_fields_ml",
+    "predict_root_fields",
+    "predict_short_reporter_fields",
     "prepare_citation_evidence",
     "prepare_reporter_citation_evidence",
     "prepare_root_opinions",

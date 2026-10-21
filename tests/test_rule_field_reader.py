@@ -137,3 +137,102 @@ for prefix in ('mellea_lrc.model', 'mellea_lrc.extraction', 'mellea_lrc.config',
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 """
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_public_readers_have_identical_input_signatures():
+    import inspect
+
+    from mellea_lrc.field_extraction import MLCiteReader
+
+    for method in ("predict", "predict_many"):
+        rule = inspect.signature(getattr(RuleFieldReader, method)).parameters
+        ml = inspect.signature(getattr(MLCiteReader, method)).parameters
+        assert tuple(rule) == tuple(ml)
+        assert [(item.kind, item.default) for item in rule.values()] == [
+            (item.kind, item.default) for item in ml.values()
+        ]
+
+
+@pytest.mark.parametrize("docket", ["No. 05-cv-4206", "No. 05-4206"])
+def test_shared_docket_and_reporter_context_keeps_name_court_and_date(docket):
+    source = f"Alpha v. Beta, {docket}, 2006 WL 1984362, at *1 (E.D. La. July 13, 2006)."
+    locators = (span(source, docket), span(source, "2006 WL 1984362"))
+    predictions = RuleFieldReader().predict_many(source, locators)
+    assert [quotes(source, prediction) for prediction in predictions] == [
+        {"case_name": "Alpha v. Beta", "court": "E.D. La.", "date": "July 13, 2006", "pin_cite": None},
+        {"case_name": "Alpha v. Beta", "court": "E.D. La.", "date": "July 13, 2006", "pin_cite": "*1"},
+    ]
+
+
+def test_parallel_reporters_share_only_the_group_name_court_and_date():
+    source = "Alpha v. Beta, 123 F.3d 456, 459, 789 F.2d 10, 12 (2d Cir. 2000)."
+    predictions = RuleFieldReader().predict_many(
+        source, (span(source, "123 F.3d 456"), span(source, "789 F.2d 10"))
+    )
+    assert [quotes(source, prediction) for prediction in predictions] == [
+        {"case_name": "Alpha v. Beta", "court": "2d Cir.", "date": "2000", "pin_cite": "459"},
+        {"case_name": "Alpha v. Beta", "court": "2d Cir.", "date": "2000", "pin_cite": "12"},
+    ]
+
+
+def test_parallel_short_reporters_share_written_name_and_keep_local_pins():
+    source = "See Unknown, 347 U.S. at 495, 74 S. Ct. at 690."
+    predictions = RuleFieldReader().predict_many(
+        source, (span(source, "347 U.S. at 495"), span(source, "74 S. Ct. at 690"))
+    )
+    assert [quotes(source, prediction) for prediction in predictions] == [
+        {"case_name": "Unknown", "court": None, "date": None, "pin_cite": "495"},
+        {"case_name": "Unknown", "court": None, "date": None, "pin_cite": "690"},
+    ]
+
+
+def test_explicit_context_preserves_caller_group_boundaries_and_short_aliases():
+    from mellea_lrc.field_extraction import FieldContext
+
+    source = "The Court explained Alpha, 123 F.3d at 459."
+    locator = span(source, "123 F.3d at 459")
+    context = FieldContext(
+        kind="short_reporter",
+        name_before=Span(0, locator.start),
+        court_date_after=Span(locator.end, len(source)),
+        pin_region=locator,
+        known_names=("Alpha",),
+    )
+    prediction = RuleFieldReader().predict(source, locator, context=context)
+    assert quotes(source, prediction) == {
+        "case_name": "Alpha",
+        "court": None,
+        "date": None,
+        "pin_cite": "459",
+    }
+    assert RuleFieldReader().predict_many(source, (locator,), contexts=(context,)) == (prediction,)
+    assert FieldContext.model_validate_json(context.model_dump_json()) == context
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("name_before", Span(0, 30)),
+        ("court_date_after", Span(0, 5)),
+        ("pin_region", Span(0, 5)),
+        ("court_date_after", Span(25, 100)),
+    ],
+)
+def test_impossible_context_is_rejected(field, value):
+    from mellea_lrc.field_extraction import FieldContext
+
+    source = "Alpha, 123 F.3d 456 (2000)."
+    locator = span(source, "123 F.3d 456")
+    context = FieldContext(
+        kind="reporter",
+        name_before=Span(0, locator.start),
+        court_date_after=Span(locator.end, len(source)),
+        pin_region=Span(locator.end, len(source)),
+    ).model_copy(update={field: value})
+    with pytest.raises(ValueError):
+        RuleFieldReader().predict(source, locator, context=context)
+
+
+def test_context_count_does_not_silently_truncate_batch():
+    with pytest.raises(ValueError, match="exactly one FieldContext"):
+        RuleFieldReader().predict_many("123 F.3d 456", (Span(0, 12),), contexts=())

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Literal, Self
+from enum import Enum
+from typing import TYPE_CHECKING, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -13,16 +14,23 @@ if TYPE_CHECKING:
     from mellea_lrc.field_extraction.models import MLFieldPrediction
 
 
+class FieldSource(str, Enum):
+    """Explicit span source for one downstream field-normalization stage."""
+
+    RULE = "RULE"
+    ML = "ML"
+
+
 class FieldExtractionConfig(BaseModel):
     """Inference and field selection are separate; no setting has a hidden policy default."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     ml_enabled: bool = Field(strict=True)
-    case_name: Literal["rule", "ml"]
-    court: Literal["rule", "ml"]
-    date: Literal["rule", "ml"]
-    pin_cite: Literal["rule", "ml"]
+    case_name: FieldSource
+    court: FieldSource
+    date: FieldSource
+    pin_cite: FieldSource
     model_id: str | None = None
     revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     variant: str | None = None
@@ -42,7 +50,9 @@ class FieldExtractionConfig(BaseModel):
     def check_ml_configuration(self) -> Self:
         if not self.ml_enabled:
             selected = [
-                name for name in ("case_name", "court", "date", "pin_cite") if getattr(self, name) == "ml"
+                name
+                for name in ("case_name", "court", "date", "pin_cite")
+                if getattr(self, name) is FieldSource.ML
             ]
             if selected:
                 raise ValueError("ML field sources require ML_ENABLED=true: " + ", ".join(selected))
