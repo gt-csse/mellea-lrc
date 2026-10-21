@@ -37,7 +37,7 @@ SHORT_PREFIX = (
 @pytest.fixture(autouse=True)
 def _mock_native_source_boundary(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
     )
     monkeypatch.chdir(tmp_path)
     # These fixtures isolate workflow persistence; real metadata/tag validation
@@ -519,7 +519,13 @@ def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_disp
         calls.append(document)
         assert review_leaves is False
         assert field_extraction == FieldExtractionConfig(
-            ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
+            ml_enabled=False,
+            case_name="RULE",
+            court="RULE",
+            date="RULE",
+            pin_cite="RULE",
+            context_before=260,
+            context_after=260,
         )
 
         def save(result):
@@ -594,15 +600,19 @@ def test_ml_partial_runner_saves_raw_prediction_and_resumes_without_replaying_in
     interrupted = True
 
     class Reader:
-        def predict_many(self, source, locator_spans, *, contexts):
-            inferences.append(locator_spans)
-            name_start = source.rindex("Smith", 0, locator_spans[0].start)
+        def predict_many(self, contexts):
+            inferences.append(contexts)
+            context = contexts[0]
+            source_offset = context.source_span.start
+            name_start = source_offset + context.text.rindex(
+                "Smith", 0, context.locator.start - source_offset
+            )
             return (
                 MLFieldPrediction(
                     model_id=config.model_id,
                     revision=config.revision,
                     variant=config.variant,
-                    context_span=Span(0, len(source)),
+                    context_span=context.source_span,
                     case_name=Span(name_start, name_start + len("Smith")),
                 ),
             )

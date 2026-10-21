@@ -35,8 +35,8 @@ class FieldExtractionConfig(BaseModel):
     revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     variant: str | None = None
     device: str | None = None
-    context_before: int | None = Field(default=None, ge=0, strict=True)
-    context_after: int | None = Field(default=None, ge=0, strict=True)
+    context_before: int = Field(ge=0, strict=True)
+    context_after: int = Field(ge=0, strict=True)
     batch_size: int | None = Field(default=None, ge=1, strict=True)
 
     @field_validator("model_id", "variant", "device")
@@ -64,8 +64,6 @@ class FieldExtractionConfig(BaseModel):
                     "revision",
                     "variant",
                     "device",
-                    "context_before",
-                    "context_after",
                     "batch_size",
                 )
                 if getattr(self, name) is None
@@ -113,18 +111,16 @@ class FieldExtractionConfig(BaseModel):
         settings: dict[str, object] = {"ml_enabled": enabled == "true"}
         for name in ("case_name", "court", "date", "pin_cite"):
             settings[name] = required_setting(values, prefix + name.upper())
+        for name in ("context_before", "context_after"):
+            settings[name] = int(required_setting(values, prefix + name.upper()))
         if enabled == "true":
             for name in (
                 "model_id",
                 "revision",
                 "variant",
                 "device",
-                "context_before",
-                "context_after",
                 "batch_size",
             ):
                 value = required_setting(values, prefix + name.upper())
-                settings[name] = (
-                    int(value) if name in {"context_before", "context_after", "batch_size"} else value
-                )
+                settings[name] = int(value) if name == "batch_size" else value
         return cls.model_validate(settings)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
 from mellea_lrc.config.field_extraction import FieldExtractionConfig
-from mellea_lrc.extraction.context.field_predictions import root_field_contexts
+from mellea_lrc.extraction.context.field_predictions import _root_field_contexts
 from mellea_lrc.extraction.context.full_citations import require_structure
 from mellea_lrc.field_extraction.ml_cite import MLCiteReader, get_ml_reader
 from mellea_lrc.field_extraction.rule import RuleFieldReader
@@ -53,24 +53,22 @@ def predict_root_fields(
         return document.complete_substage(SUBSTAGE)
 
     policy = rules or stable()
-    locators = tuple(citation.locator_span for citation in citations)
-    contexts = root_field_contexts(document, policy)
-    rule_predictions = RuleFieldReader(
-        case_name_window=policy.case_name_window,
-        post_locator_window=policy.post_locator_window,
-    ).predict_many(document.text, locators, contexts=contexts)
+    contexts = _root_field_contexts(document, policy, fields)
+    rule_predictions = RuleFieldReader().predict_many(contexts)
     if len(rule_predictions) != len(citations):
         raise ValueError("Rule field reader must return one prediction for each locator")
-    for locator, prediction in zip(locators, rule_predictions, strict=True):
-        prediction.validate_source(document.text, locator)
+    for context, prediction in zip(contexts, rule_predictions, strict=True):
+        prediction.validate_source(document.text, context.locator)
+        prediction.validate_context(context)
 
     ml_predictions = None
     if model is not None:
-        ml_predictions = model.predict_many(document.text, locators, contexts=contexts)
+        ml_predictions = model.predict_many(contexts)
         if len(ml_predictions) != len(citations):
             raise ValueError("ML field reader must return one prediction for each locator")
-        for locator, prediction in zip(locators, ml_predictions, strict=True):
-            prediction.validate_source(document.text, locator)
+        for context, prediction in zip(contexts, ml_predictions, strict=True):
+            prediction.validate_source(document.text, context.locator)
+            prediction.validate_context(context)
             fields.validate_prediction(prediction)
 
     # Neither reader can partially commit a batch. Every raw result is checked

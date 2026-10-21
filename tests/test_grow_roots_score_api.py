@@ -37,7 +37,7 @@ def test_explicitly_cleared_reading_scores_only_as_not_stated(field):
 @pytest.fixture(autouse=True)
 def explicit_rule_fields(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
     )
     monkeypatch.chdir(tmp_path)
 
@@ -314,15 +314,15 @@ def _root_document_with_predictions(document: Document) -> Document:
     )
 
     class Reader:
-        def predict_many(self, source, locators, *, contexts):
+        def predict_many(self, contexts):
             return tuple(
                 MLFieldPrediction(
                     model_id=config.model_id,
                     revision=config.revision,
                     variant=config.variant,
-                    context_span=Span(0, len(source)),
+                    context_span=context.source_span,
                 )
-                for _ in locators
+                for context in contexts
             )
 
     checkpoint = predict_root_fields(

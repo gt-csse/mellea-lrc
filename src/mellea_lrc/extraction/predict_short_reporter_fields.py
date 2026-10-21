@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mellea_lrc.config.extraction import stable
 from mellea_lrc.config.field_extraction import FieldExtractionConfig
-from mellea_lrc.extraction.context.field_predictions import short_field_contexts
+from mellea_lrc.extraction.context.field_predictions import _short_field_contexts
 from mellea_lrc.extraction.context.leaves import require_leaves
 from mellea_lrc.extraction.resolve_short_reporter_colocations import SUBSTAGE as COLOCATION_SUBSTAGE
 from mellea_lrc.field_extraction.ml_cite import MLCiteReader, get_ml_reader
@@ -42,24 +42,22 @@ def predict_short_reporter_fields(
         return document.complete_substage(SUBSTAGE)
 
     policy = stable()
-    locators = tuple(citation.short_locator_span for citation in citations)
-    contexts = short_field_contexts(document)
-    rule_predictions = RuleFieldReader(
-        case_name_window=policy.case_name_window,
-        post_locator_window=policy.post_locator_window,
-    ).predict_many(document.text, locators, contexts=contexts)
+    contexts = _short_field_contexts(document, fields)
+    rule_predictions = RuleFieldReader().predict_many(contexts)
     if len(rule_predictions) != len(citations):
         raise ValueError("Rule field reader must return one prediction for each locator")
-    for locator, prediction in zip(locators, rule_predictions, strict=True):
-        prediction.validate_source(document.text, locator)
+    for context, prediction in zip(contexts, rule_predictions, strict=True):
+        prediction.validate_source(document.text, context.locator)
+        prediction.validate_context(context)
 
     ml_predictions = None
     if model is not None:
-        ml_predictions = model.predict_many(document.text, locators, contexts=contexts)
+        ml_predictions = model.predict_many(contexts)
         if len(ml_predictions) != len(citations):
             raise ValueError("ML field reader must return one prediction for each locator")
-        for locator, prediction in zip(locators, ml_predictions, strict=True):
-            prediction.validate_source(document.text, locator)
+        for context, prediction in zip(contexts, ml_predictions, strict=True):
+            prediction.validate_source(document.text, context.locator)
+            prediction.validate_context(context)
             fields.validate_prediction(prediction)
 
     for index, citation in enumerate(citations):

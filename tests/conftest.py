@@ -25,6 +25,8 @@ def rule_field_policy(monkeypatch):
             "MELLEA_LRC_FIELD_EXTRACTION_COURT": "RULE",
             "MELLEA_LRC_FIELD_EXTRACTION_DATE": "RULE",
             "MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE": "RULE",
+            "MELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE": "260",
+            "MELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER": "260",
         }
 
     monkeypatch.setattr(field_extraction, "read_env", settings)

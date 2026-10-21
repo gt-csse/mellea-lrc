@@ -38,7 +38,13 @@ from mellea_lrc.model.execution import stage_for_substage
 from mellea_lrc.providers.courtlistener import CourtListenerClient
 
 _RULE_FIELDS = FieldExtractionConfig(
-    ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
+    ml_enabled=False,
+    case_name="RULE",
+    court="RULE",
+    date="RULE",
+    pin_cite="RULE",
+    context_before=260,
+    context_after=260,
 )
 
 _ROOT_WORKFLOW = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
@@ -137,7 +143,7 @@ def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
 def _courtlistener_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
         "COURTLISTENER_BASE_URL=https://proxy.example/api/rest/v4/\n"
         "COURTLISTENER_TIMEOUT_SECONDS=47\n"
         "COURTLISTENER_API_TOKEN=unused-main-token\n"
@@ -210,7 +216,7 @@ def _complete_with_checkpoints(
 @pytest.fixture(autouse=True)
 def _offline_body_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
     )
     monkeypatch.chdir(tmp_path)
     # These tests exercise checkpoint orchestration; native source metadata has
