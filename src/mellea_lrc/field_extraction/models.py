@@ -9,16 +9,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from mellea_lrc.parsing.span import Span
 
 
-class FieldContext(BaseModel):
-    """Source-derived reading boundaries, without document or annotation state.
+class LocatorContext(BaseModel):
+    """The complete, shared reader input, prepared by the prediction stage.
 
-    Colocated locators share the prefix before their group and the suffix
-    after it. Pinpoints remain local to each locator. Known short names are
-    optional source-derived aliases, never normalized or gold field values.
+    Text is one exact source excerpt. Every span uses absolute source offsets;
+    neither reader discovers neighboring locators or changes these boundaries.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    text: str
+    source_span: Span
+    locator: Span
     kind: Literal["reporter", "docket", "short_reporter"]
     name_before: Span
     court_date_after: Span
@@ -32,43 +34,36 @@ class FieldContext(BaseModel):
             raise ValueError("Known case names must be nonempty strings")
         return names
 
-    def validate_source(self, source: str, locator: Span) -> None:
-        """Reject impossible boundaries rather than quietly changing context."""
-        if any(span.end > len(source) for span in (self.name_before, self.court_date_after, self.pin_region)):
-            raise ValueError("Field reading context is outside the source")
-        if self.name_before.end > locator.start:
+    @model_validator(mode="after")
+    def _validate_context(self) -> Self:
+        if not self.text or len(self.text) != self.source_span.end - self.source_span.start:
+            raise ValueError("Locator context text must exactly fill its source span")
+        for span in (self.locator, self.name_before, self.court_date_after, self.pin_region):
+            if not self.source_span.start <= span.start <= span.end <= self.source_span.end:
+                raise ValueError("Locator context boundaries must be inside its source span")
+        start, end = self.locator.start - self.source_span.start, self.locator.end - self.source_span.start
+        if start == end or not self.text[start:end].strip():
+            raise ValueError("Target locator must be nonempty and nonblank")
+        if self.name_before.end > self.locator.start:
             raise ValueError("Case-name prefix must end before the target locator")
-        if self.court_date_after.start < locator.end:
+        if self.court_date_after.start < self.locator.end:
             raise ValueError("Court/date suffix must start after the target locator")
         if self.kind == "short_reporter":
-            if not locator.start <= self.pin_region.start <= self.pin_region.end <= locator.end:
+            if not self.locator.start <= self.pin_region.start <= self.pin_region.end <= self.locator.end:
                 raise ValueError("Short reporter pinpoint region must be inside the target locator")
-        elif self.pin_region.start < locator.end:
+        elif self.pin_region.start < self.locator.end:
             raise ValueError("Full-citation pinpoint region must start after the target locator")
+        return self
 
 
-def validate_reader_inputs(
-    source: str, locators: tuple[Span, ...], contexts: tuple[FieldContext, ...] | None
-) -> None:
-    """Common fail-fast source contract used by both public readers."""
-    if not isinstance(source, str):
-        raise TypeError("Field prediction source must be a string")
-    if not isinstance(locators, tuple) or any(not isinstance(locator, Span) for locator in locators):
-        raise TypeError("Field locators must be a tuple of Spans")
-    if contexts is not None and (
-        not isinstance(contexts, tuple)
-        or len(contexts) != len(locators)
-        or any(not isinstance(context, FieldContext) for context in contexts)
+def validate_contexts(contexts: tuple[LocatorContext, ...]) -> None:
+    """Fail before either reader starts a batch with malformed input."""
+    if not isinstance(contexts, tuple) or any(
+        not isinstance(context, LocatorContext) for context in contexts
     ):
-        raise ValueError("Reading contexts must contain exactly one FieldContext for each locator")
-    for index, locator in enumerate(locators):
-        if (
-            not 0 <= locator.start < locator.end <= len(source)
-            or not source[locator.start : locator.end].strip()
-        ):
-            raise ValueError("Target locator is outside the source, empty, or blank")
-        if contexts is not None:
-            contexts[index].validate_source(source, locator)
+        raise TypeError("Reader input must be a tuple of LocatorContexts")
+    for context in contexts:
+        context._validate_context()
 
 
 class MLReaderConfig(BaseModel):
@@ -80,8 +75,6 @@ class MLReaderConfig(BaseModel):
     revision: str
     variant: str
     device: str
-    context_before: int = Field(ge=0, strict=True)
-    context_after: int = Field(ge=0, strict=True)
     batch_size: int = Field(ge=1, strict=True)
 
     @field_validator("model_id", "revision", "variant", "device")
@@ -127,6 +120,16 @@ class FieldPrediction(BaseModel):
         for span in (self.case_name, self.court, self.date, self.pin_cite):
             if span is not None and not source[span.start : span.end].strip():
                 raise ValueError("Predicted field cannot be blank")
+
+    def validate_context(self, context: LocatorContext) -> None:
+        """A reader must return spans within the exact context it received."""
+        if self.context_span != context.source_span:
+            raise ValueError("Field prediction must preserve the supplied locator context")
+        for span in (self.case_name, self.court, self.date, self.pin_cite):
+            if span is not None:
+                start, end = span.start - context.source_span.start, span.end - context.source_span.start
+                if not context.text[start:end].strip():
+                    raise ValueError("Predicted field cannot be blank")
 
 
 class MLFieldPrediction(FieldPrediction):

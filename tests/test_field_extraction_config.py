@@ -18,14 +18,14 @@ _RULE = {
     "COURT": "RULE",
     "DATE": "RULE",
     "PIN_CITE": "RULE",
+    "CONTEXT_BEFORE": "260",
+    "CONTEXT_AFTER": "260",
 }
 _CHECKPOINT = {
     "MODEL_ID": "gt-csse/ML-cite",
     "REVISION": "881db5474fafe756474034ef6bf9c86a39e9630c",
     "VARIANT": "ML-cite-Bert-augmented",
     "DEVICE": "cpu",
-    "CONTEXT_BEFORE": "260",
-    "CONTEXT_AFTER": "260",
     "BATCH_SIZE": "2",
 }
 
@@ -41,13 +41,19 @@ def _config(**changes):
 def test_all_rule_sources_need_no_checkpoint_and_do_not_load_optional_runtime(monkeypatch):
     config = _config()
     assert config == FieldExtractionConfig(
-        ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
+        context_before=260,
+        context_after=260,
+        ml_enabled=False,
+        case_name="RULE",
+        court="RULE",
+        date="RULE",
+        pin_cite="RULE",
     )
     monkeypatch.setattr(ml_cite, "get_ml_reader", lambda _: pytest.fail("rule preflight loaded ML"))
     config.validate_runtime()
     code = (
         "from mellea_lrc.config.field_extraction import FieldExtractionConfig; import sys; "
-        "c = FieldExtractionConfig(ml_enabled=False, case_name='RULE', court='RULE', "
+        "c = FieldExtractionConfig(context_before=260, context_after=260, ml_enabled=False, case_name='RULE', court='RULE', "
         "date='RULE', pin_cite='RULE'); c.validate_runtime(); "
         "assert 'torch' not in sys.modules; assert 'transformers' not in sys.modules"
     )
@@ -76,7 +82,15 @@ def test_ml_source_is_rejected_if_inference_is_disabled(field):
 @pytest.mark.parametrize("source", ["rule", "ml", "Rule", "Ml", "bert", "ml_cite_bert", "rules", True, 1])
 def test_field_sources_do_not_accept_alternative_names_or_types(source):
     with pytest.raises(ValidationError):
-        FieldExtractionConfig(ml_enabled=False, case_name=source, court="RULE", date="RULE", pin_cite="RULE")
+        FieldExtractionConfig(
+            context_before=260,
+            context_after=260,
+            ml_enabled=False,
+            case_name=source,
+            court="RULE",
+            date="RULE",
+            pin_cite="RULE",
+        )
 
 
 @pytest.mark.parametrize("field", ["CASE_NAME", "COURT", "DATE", "PIN_CITE"])
@@ -97,7 +111,13 @@ def test_field_source_enum_and_native_json_have_the_same_explicit_values():
 def test_direct_configuration_also_requires_strict_boolean(enabled):
     with pytest.raises(ValidationError):
         FieldExtractionConfig(
-            ml_enabled=enabled, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
+            context_before=260,
+            context_after=260,
+            ml_enabled=enabled,
+            case_name="RULE",
+            court="RULE",
+            date="RULE",
+            pin_cite="RULE",
         )
 
 
@@ -112,7 +132,15 @@ def test_enabling_inference_requires_every_checkpoint_setting(key):
 
 def test_direct_enabled_configuration_requires_complete_checkpoint():
     with pytest.raises(ValidationError, match="ML field extraction requires"):
-        FieldExtractionConfig(ml_enabled=True, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE")
+        FieldExtractionConfig(
+            context_before=260,
+            context_after=260,
+            ml_enabled=True,
+            case_name="RULE",
+            court="RULE",
+            date="RULE",
+            pin_cite="RULE",
+        )
 
 
 @pytest.mark.parametrize(
@@ -153,5 +181,27 @@ def test_mixed_field_selection_is_valid_and_preflight_load_errors_propagate(monk
 def test_removed_backend_is_not_a_supported_config_alias():
     with pytest.raises(ValidationError, match="backend"):
         FieldExtractionConfig(
-            ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE", backend="RULE"
+            context_before=260,
+            context_after=260,
+            ml_enabled=False,
+            case_name="RULE",
+            court="RULE",
+            date="RULE",
+            pin_cite="RULE",
+            backend="RULE",
         )
+
+
+@pytest.mark.parametrize("key", ["CONTEXT_BEFORE", "CONTEXT_AFTER"])
+def test_shared_context_windows_are_required_even_when_ml_is_disabled(key):
+    values = _env({name: value for name, value in _RULE.items() if name != key})
+    with pytest.raises(RuntimeError, match=_PREFIX + key):
+        FieldExtractionConfig.from_env(environ=values)
+
+
+def test_ml_reader_configuration_has_no_independent_context_window():
+    config = _config(**(_CHECKPOINT | {"ML_ENABLED": "true"}))
+    reader_config = config.ml_reader_config()
+    assert not hasattr(reader_config, "context_before")
+    assert not hasattr(reader_config, "context_after")
+    assert config.context_before == config.context_after == 260

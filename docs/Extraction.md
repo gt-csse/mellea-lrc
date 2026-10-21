@@ -90,9 +90,9 @@ locator discovery -> docket entries and colocation
                   -> resolve_pin_cites -> root formation
 ```
 
-The required prediction substage computes the four rule spans once per locator.
-When ML is enabled, the same substage also performs one four-field model
-inference per locator. It saves the results in `citation.rule_field_reading`
+The required prediction substage constructs one shared locator context and
+computes the four rule spans once per locator. When ML is enabled, the same
+context also receives one four-field model inference. It saves the results in `citation.rule_field_reading`
 and `citation.ml_field_reading`; the latter is `None` when ML is disabled.
 Neither result changes or normalizes a citation field. Both records point to
 their producing citation node. Model results retain the revision and actual
@@ -112,39 +112,46 @@ repositories. It does not install the LLM, PDF, or model runtimes:
 pip install 'mellea-lrc @ git+https://github.com/gt-csse/mellea-lrc.git@feat/citation-checking'
 ```
 
-Pin an immutable Git commit for a published comparison. Both readers accept
-unchanged source text and one locator, and return the same four optional spans:
+Pin an immutable Git commit for a published comparison. Both readers take one
+`LocatorContext` and return the same four optional absolute source spans:
 
 ```python
-from mellea_lrc.field_extraction import RuleFieldReader, Span
+from mellea_lrc.field_extraction import LocatorContext, RuleFieldReader, Span
 
-source = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009)."
-start = source.index("556 U.S. 662")
-locator = Span(start, start + len("556 U.S. 662"))
-prediction = RuleFieldReader().predict(source, locator)
+text = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009)."
+start = text.index("556 U.S. 662")
+end = start + len("556 U.S. 662")
+context = LocatorContext(
+    text=text,
+    source_span=Span(0, len(text)),
+    locator=Span(start, end),
+    kind="reporter",
+    name_before=Span(0, start),
+    court_date_after=Span(end, len(text)),
+    pin_region=Span(end, len(text)),
+)
+prediction = RuleFieldReader().predict(context)
 # prediction.case_name / court / date / pin_cite: Span | None
-quote = source[prediction.case_name.start : prediction.case_name.end]
+quote = text[prediction.case_name.start : prediction.case_name.end]
 ```
 
-`MLCiteReader(MLReaderConfig(...)).predict(source, locator)` uses the same input
-and span fields, adding model identity and the actual context span to its result.
-The reader takes explicit settings; application entrypoints obtain those settings
-from `.env`. The `ml-cite` extra installs its model runtime; the `pipeline` extra
-installs the full document workflows. Neither reader reads annotations, mutates a
-Document, or normalizes fields. Empty field results mean no quoted span; reporter
-court inference remains a later document operation.
+`MLCiteReader(MLReaderConfig(...)).predict(context)` consumes the same object and
+returns the same span fields, adding model identity and the supplied context's
+source span. Both readers also expose `predict_many(contexts)`. The `ml-cite`
+extra installs the model runtime; the `pipeline` extra installs the full document
+workflows. Neither reader constructs context, discovers neighboring locators,
+reads annotations, mutates a Document, or normalizes fields. The model reader
+does not shrink the supplied excerpt. An input exceeding its token capacity
+raises rather than silently becoming a different input.
 
-For a fair training comparison, give both readers the same prepared source and
-locator offsets and retain the existing evaluator in the training repository.
-Both readers accept the same optional `FieldContext` with source-derived
-locator boundaries, colocation groups, and previously introduced names. Without
-explicit context, the rule reader derives boundaries from recognized and supplied
-locators; the ML reader uses its configured trained context window. Document
-prediction prepares one shared context from its
-already discovered locators and passes it to both readers. A hunted locator that
-an isolated source reader cannot discover is additional document input, not
-annotation information. Comparisons must disclose that difference rather than
-claim equivalence between different prepared contexts.
+Inside the existing prediction substage, context construction uses the already
+found locators, colocation boundaries, and available source names. Its exact text
+excerpt, absolute source and locator spans, and reading boundaries form the only
+reader input. The same object goes to the rule reader and, when enabled, the ML
+reader. Context construction adds no stage, public Document API, or durable
+citation field. External comparisons must prepare one context per target and pass
+it unchanged to both readers. Empty field results mean no quoted span;
+reporter-based court inference remains a later document operation.
 
 Configure the switch and every consuming field explicitly in `.env`. For
 example, this policy uses model spans for names, courts, and dates while keeping
@@ -158,8 +165,9 @@ MELLEA_LRC_FIELD_EXTRACTION_DATE=ML
 MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE
 ```
 
-`.env.example` also supplies the model, immutable revision, device, source
-context limits, and batch size. There are no implicit switch or field-source
+`.env.example` supplies shared context limits in every configuration, including
+RULE-only extraction. It also supplies the model, immutable revision, device, and
+batch size required when ML is enabled. There are no implicit switch or field-source
 defaults in Python. Each field source must be exactly `RULE` or `ML`; lowercase
 values and automatic fallback modes are rejected. `ML_ENABLED=false` requires
 all field sources to be `RULE`.
@@ -186,10 +194,10 @@ four-field predictions, but `resolve_case_names` alone consumes a selected model
 field. Model court, date, and pinpoint predictions are not applied to short
 reporters. Reference, Id., and supra readers remain unchanged.
 
-The shared service in `field_extraction/` batches inputs and reuses the
-loaded model. Context depends on source text and the supplied locator, never
-annotation targets. Overlong inputs shrink surrounding context without changing
-the locator. An unrepresentable locator or malformed source span raises.
+The shared service in `field_extraction/` batches the prepared contexts and reuses
+the loaded model. Context depends on source text and the supplied locator, never
+annotation targets. An unrepresentable locator, malformed span, or context beyond
+the model token capacity raises.
 
 Every field update points to its normal field-reading node. Native serialization
 preserves the raw prediction independently; rewinding to the prediction

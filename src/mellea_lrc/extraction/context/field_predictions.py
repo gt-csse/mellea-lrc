@@ -3,8 +3,9 @@
 from eyecite.models import ReferenceCitation as EyeciteReferenceCitation
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.extraction.context.leaves import aliases
-from mellea_lrc.field_extraction.models import FieldContext
+from mellea_lrc.field_extraction.models import LocatorContext
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import latest
 from mellea_lrc.model.document import Document
@@ -12,7 +13,9 @@ from mellea_lrc.parsing.events import events
 from mellea_lrc.parsing.span import Span
 
 
-def root_field_contexts(document: Document, rules: ExtractionRules) -> tuple[FieldContext, ...]:
+def _root_field_contexts(
+    document: Document, rules: ExtractionRules, fields: FieldExtractionConfig
+) -> tuple[LocatorContext, ...]:
     """Describe existing locator groups without extracting or normalizing fields."""
     contexts = []
     for citation in document.full_locators:
@@ -28,7 +31,10 @@ def root_field_contexts(document: Document, rules: ExtractionRules) -> tuple[Fie
             default=len(document.text),
         )
         contexts.append(
-            FieldContext(
+            _locator_context(
+                document.text,
+                site,
+                fields,
                 kind=citation.kind,
                 name_before=Span(start, start + len(prefix)),
                 court_date_after=Span(suffix_start, suffix_start + len(suffix)),
@@ -38,7 +44,7 @@ def root_field_contexts(document: Document, rules: ExtractionRules) -> tuple[Fie
     return tuple(contexts)
 
 
-def short_field_contexts(document: Document) -> tuple[FieldContext, ...]:
+def _short_field_contexts(document: Document, fields: FieldExtractionConfig) -> tuple[LocatorContext, ...]:
     """Give both readers the same group boundary and currently known name aliases."""
     rules = stable()
     groups = {group.id: group.citation_ids for group in document.short_reporter_colocations}
@@ -61,7 +67,10 @@ def short_field_contexts(document: Document) -> tuple[FieldContext, ...]:
                     start = max(start, end)
         site = citation.short_locator_span
         contexts.append(
-            FieldContext(
+            _locator_context(
+                document.text,
+                site,
+                fields,
                 kind="short_reporter",
                 name_before=Span(start, first_span.start),
                 court_date_after=Span(site.end, site.end),
@@ -70,3 +79,30 @@ def short_field_contexts(document: Document) -> tuple[FieldContext, ...]:
             )
         )
     return tuple(contexts)
+
+
+def _locator_context(
+    source: str,
+    locator: Span,
+    fields: FieldExtractionConfig,
+    *,
+    kind: str,
+    name_before: Span,
+    court_date_after: Span,
+    pin_region: Span,
+    known_names: tuple[str, ...] = (),
+) -> LocatorContext:
+    """Crop once for both readers, retaining complete shared locator-group bounds."""
+    bounds = (locator, name_before, court_date_after, pin_region)
+    start = min(max(0, locator.start - fields.context_before), *(span.start for span in bounds))
+    end = max(min(len(source), locator.end + fields.context_after), *(span.end for span in bounds))
+    return LocatorContext(
+        text=source[start:end],
+        source_span=Span(start, end),
+        locator=locator,
+        kind=kind,
+        name_before=name_before,
+        court_date_after=court_date_after,
+        pin_region=pin_region,
+        known_names=known_names,
+    )

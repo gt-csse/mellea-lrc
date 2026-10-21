@@ -35,10 +35,22 @@ For a rule baseline without LLM or model dependencies, install the base package
 and call the standalone reader:
 
 ```python
-from mellea_lrc.field_extraction import RuleFieldReader, Span
+from mellea_lrc.field_extraction import LocatorContext, RuleFieldReader, Span
 
-prediction = RuleFieldReader().predict(context_text, Span(locator_start, locator_end))
-# case_name, court, date, pin_cite are exact source spans or None.
+text = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009)."
+start = text.index("556 U.S. 662")
+end = start + len("556 U.S. 662")
+context = LocatorContext(
+    text=text,
+    source_span=Span(0, len(text)),
+    locator=Span(start, end),
+    kind="reporter",
+    name_before=Span(0, start),
+    court_date_after=Span(end, len(text)),
+    pin_region=Span(end, len(text)),
+)
+prediction = RuleFieldReader().predict(context)
+# case_name, court, date, pin_cite are absolute source spans or None.
 ```
 
 `MLCiteReader` uses the same input and four-span contract. Neither reader
@@ -101,10 +113,12 @@ For the complete Python API or CLI outside this repository, select
 `mellea-lrc[pipeline]` instead. Add the `ml-cite` extra when ML field inference is
 needed; it is independent of the pipeline extra.
 
-Both readers expose `predict(source, locator_span, context=...)` and return four
-optional field spans. The required `predict_fields` substage saves rule results
-and optional ML results once. Subsequent field substages select their configured
-saved spans, normalize them, and retain the existing court-inference fallback.
+Both readers expose `predict(context)` and return four optional field spans.
+The required `predict_fields` substage constructs each locator context once,
+passes that same object to both readers, and saves rule results and optional ML
+results. Neither reader discovers locators or changes the supplied context.
+Subsequent field substages select their configured saved spans, normalize them,
+and retain the existing court-inference fallback.
 See [field extraction](docs/Extraction.md#shared-field-prediction-and-field-sources)
 for the standalone API and context requirements.
 

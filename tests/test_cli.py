@@ -85,6 +85,8 @@ def test_invalid_field_policy_fails_before_preprocessing_or_output(
         "COURT": "RULE",
         "DATE": "RULE",
         "PIN_CITE": "RULE",
+        "CONTEXT_BEFORE": "260",
+        "CONTEXT_AFTER": "260",
     } | changes
     monkeypatch.setattr(
         field_extraction,

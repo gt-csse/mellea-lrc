@@ -25,14 +25,20 @@ from mellea_lrc.model.source import SourceFormat
 from mellea_lrc.providers.courtlistener import CourtListenerHTTPError
 
 _RULE_FIELDS = FieldExtractionConfig(
-    ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
+    ml_enabled=False,
+    case_name="RULE",
+    court="RULE",
+    date="RULE",
+    pin_cite="RULE",
+    context_before=260,
+    context_after=260,
 )
 
 
 @pytest.fixture(autouse=True)
 def explicit_rule_field_extraction(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
     )
     monkeypatch.chdir(tmp_path)
 
@@ -79,7 +85,7 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
             pass
 
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE=260\nMELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER=260\n"
         "COURTLISTENER_BASE_URL=https://proxy.example/api/rest/v4/\n"
         "COURTLISTENER_TIMEOUT_SECONDS=45\n"
         "COURTLISTENER_API_TOKEN=must-not-be-used\n"

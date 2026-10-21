@@ -2,8 +2,8 @@
 
 from mellea_lrc.field_extraction.ml_cite import MLCiteReader
 from mellea_lrc.field_extraction.models import (
-    FieldContext,
     FieldPrediction,
+    LocatorContext,
     MLFieldPrediction,
     MLReaderConfig,
 )
@@ -11,8 +11,8 @@ from mellea_lrc.field_extraction.rule import RuleFieldReader
 from mellea_lrc.parsing.span import Span
 
 __all__ = [
-    "FieldContext",
     "FieldPrediction",
+    "LocatorContext",
     "MLCiteReader",
     "MLFieldPrediction",
     "MLReaderConfig",

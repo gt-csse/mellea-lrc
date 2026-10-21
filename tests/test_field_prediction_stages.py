@@ -36,6 +36,8 @@ CONFIG = FieldExtractionConfig(
     batch_size=8,
 )
 RULE = FieldExtractionConfig(
+    context_before=260,
+    context_after=260,
     ml_enabled=False,
     case_name=FieldSource.RULE,
     court=FieldSource.RULE,
@@ -49,8 +51,8 @@ class StubReader:
         self.predictions = predictions
         self.calls = []
 
-    def predict_many(self, source, locator_spans, *, contexts=None):
-        self.calls.append((source, locator_spans))
+    def predict_many(self, contexts):
+        self.calls.append(contexts)
         return self.predictions
 
 
@@ -85,7 +87,10 @@ def test_root_prediction_runs_all_heads_once_without_writing_normalized_fields()
     raw = prediction(source, case_name="Smith v. Jones", court="D. Ariz.", date="Jan. 1, 2024", pin_cite="*3")
     reader = StubReader((raw,) * len(before.full_locators))
     result = predict_root_fields(before, CONFIG, ml_reader=reader)
-    assert reader.calls == [(source, tuple(c.locator_span for c in before.full_locators))]
+    assert tuple(context.locator for context in reader.calls[0]) == tuple(
+        citation.locator_span for citation in before.full_locators
+    )
+    assert all(context.text == source for context in reader.calls[0])
     assert len(result.full_locators) == len(before.full_locators) == 2
     for previous, current in zip(before.full_locators, result.full_locators, strict=True):
         assert current.locator == previous.locator
@@ -124,7 +129,8 @@ def test_short_prediction_retains_four_raw_fields_and_preserves_locator_pin():
     reader = StubReader((raw,))
     result = predict_short_reporter_fields(before, CONFIG, ml_reader=reader)
     citation = result.short_reporters[0]
-    assert reader.calls == [(source, (target.short_locator_span,))]
+    assert tuple(context.locator for context in reader.calls[0]) == (target.short_locator_span,)
+    assert reader.calls[0][0].text == source
     assert citation.short_locator == target.short_locator
     assert citation.colocation_id == target.colocation_id
     assert citation.root_id == target.root_id
@@ -249,20 +255,21 @@ def test_both_backends_receive_identical_prepared_inputs(monkeypatch, short):
     received = {}
     original = RuleFieldReader.predict_many
 
-    def rule_predict(self, source, locators, *, contexts=None):
-        received["rule"] = (source, locators, contexts)
-        return original(self, source, locators, contexts=contexts)
+    def rule_predict(self, contexts):
+        received["rule"] = contexts
+        return original(self, contexts)
 
     class Reader:
-        def predict_many(self, source, locators, *, contexts=None):
-            received["ml"] = (source, locators, contexts)
-            return (prediction(source),) * len(locators)
+        def predict_many(self, contexts):
+            received["ml"] = contexts
+            return (prediction(source),) * len(contexts)
 
     monkeypatch.setattr(RuleFieldReader, "predict_many", rule_predict)
     result = stage(before, CONFIG, ml_reader=Reader())
     assert received["rule"] == received["ml"]
-    assert received["rule"][2] is received["ml"][2]
-    assert len(received["rule"][2]) == len(citations)
+    assert received["rule"] is received["ml"]
+    assert len(received["rule"]) == len(citations)
+    assert all(context.text == source for context in received["rule"])
     for citation in result.short_reporters if short else result.full_locators:
         assert citation.rule_field_reading.node_id == citation.ml_field_reading.node_id
 
@@ -304,3 +311,83 @@ def test_unavailable_ml_runtime_fails_before_rule_extraction(monkeypatch, short)
     with pytest.raises(RuntimeError, match="Configured ML model is unavailable"):
         stage(before, CONFIG)
     assert before.model_dump_json() == saved
+
+
+def test_shared_excerpt_contains_entire_colocation_even_with_tiny_requested_window(monkeypatch):
+    from mellea_lrc.field_extraction.rule import RuleFieldReader
+
+    source = "Alpha v. Beta, " + (", " + " " * 280).join(
+        ("123 F.3d 456", "72 F. Supp. 2d 123", "99 U.S. 122")
+    )
+    source += " (2d Cir. 1997)."
+    before = before_root_fields(source)
+    assert len(before.full_locators) == 3
+    assert len(before.colocations) == 1
+    original = RuleFieldReader.predict_many
+    received = []
+
+    def predict(self, contexts):
+        received.extend(contexts)
+        return original(self, contexts)
+
+    monkeypatch.setattr(RuleFieldReader, "predict_many", predict)
+    result = predict_root_fields(before, RULE.model_copy(update={"context_before": 1, "context_after": 1}))
+    assert len(received) == 3
+    for context, citation in zip(received, result.full_locators, strict=True):
+        assert context.source_span == Span(0, len(source))
+        assert context.text == source
+        raw = citation.get_rule_field_prediction()
+        assert source[raw.case_name.start : raw.case_name.end] == "Alpha v. Beta"
+        assert source[raw.court.start : raw.court.end] == "2d Cir."
+        assert source[raw.date.start : raw.date.end] == "1997"
+
+
+def test_prediction_constructs_one_bounded_excerpt_and_passes_same_objects_to_both_readers(monkeypatch):
+    from mellea_lrc.field_extraction.rule import RuleFieldReader
+
+    source = "Before text. " * 50 + "Alpha v. Beta, 556 U.S. 662 (2009)." + " After text." * 50
+    before = before_root_fields(source)
+    locator = before.full_locators[0].locator_span
+    received = {}
+    original = RuleFieldReader.predict_many
+
+    def rule_predict(self, contexts):
+        received["rule"] = contexts
+        return original(self, contexts)
+
+    class Reader:
+        def predict_many(self, contexts):
+            received["ml"] = contexts
+            return tuple(
+                MLFieldPrediction(
+                    model_id=CONFIG.model_id,
+                    revision=CONFIG.revision,
+                    variant=CONFIG.variant,
+                    context_span=context.source_span,
+                )
+                for context in contexts
+            )
+
+    monkeypatch.setattr(RuleFieldReader, "predict_many", rule_predict)
+    result = predict_root_fields(before, CONFIG, ml_reader=Reader())
+    assert received["rule"] is received["ml"]
+    context = received["rule"][0]
+    assert context.source_span == Span(
+        locator.start - CONFIG.context_before, locator.end + CONFIG.context_after
+    )
+    assert context.text == source[context.source_span.start : context.source_span.end]
+    assert context.locator == locator
+    assert len(context.text) < len(source)
+    assert result.full_locators[0].rule_field_reading.prediction.context_span == context.source_span
+    assert result.full_locators[0].ml_field_reading.prediction.context_span == context.source_span
+
+
+def test_prediction_rejects_backend_output_that_changes_the_supplied_context():
+    source = "Alpha v. Beta, 556 U.S. 662 (2009). Unrelated text."
+    before = before_root_fields(source)
+    locator = before.full_locators[0].locator_span
+    raw = prediction(source).model_copy(update={"context_span": locator})
+    serialized = before.model_dump_json()
+    with pytest.raises(ValueError, match="preserve the supplied locator context"):
+        predict_root_fields(before, CONFIG, ml_reader=StubReader((raw,)))
+    assert before.model_dump_json() == serialized

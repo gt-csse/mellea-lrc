@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.field_extraction._case_names import read_case_name, read_short_case_name
-from mellea_lrc.field_extraction._source_contexts import source_contexts
-from mellea_lrc.field_extraction.models import FieldContext, FieldPrediction, validate_reader_inputs
+from mellea_lrc.field_extraction.models import FieldPrediction, LocatorContext, validate_contexts
 from mellea_lrc.parsing.dates import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.parsing.pin_cite import AT_JOIN, PIN_PREFIX, pin_after
 from mellea_lrc.parsing.span import Span
@@ -81,77 +80,49 @@ def read_pin_cite(source: str, start: int, end: int) -> Span | None:
 class RuleFieldReader:
     """Predict all four source spans once, before field normalization stages."""
 
-    def __init__(
-        self,
-        *,
-        case_name_window: int = 160,
-        post_locator_window: int = 120,
-        colocation_max_meaningful_gap: int = 5,
-    ) -> None:
-        if any(type(value) is not int or value < 1 for value in (case_name_window, post_locator_window)):
-            raise ValueError("Rule field windows must be positive integers")
-        if type(colocation_max_meaningful_gap) is not int or colocation_max_meaningful_gap < 0:
-            raise ValueError("Colocation gap must be a nonnegative integer")
-        self.case_name_window = case_name_window
-        self.post_locator_window = post_locator_window
-        self.colocation_max_meaningful_gap = colocation_max_meaningful_gap
+    def predict(self, context: LocatorContext) -> FieldPrediction:
+        """Read exactly the supplied context, without constructing another one."""
+        return self.predict_many((context,))[0]
 
-    def predict(self, source: str, locator: Span, *, context: FieldContext | None = None) -> FieldPrediction:
-        """Read the same anchored source input accepted by the ML reader."""
-        return self.predict_many(source, (locator,), contexts=(context,) if context is not None else None)[0]
-
-    def _predict(self, source: str, locator: Span, context: FieldContext) -> FieldPrediction:
-        before = source[context.name_before.start : context.name_before.end]
+    def _predict(self, context: LocatorContext) -> FieldPrediction:
+        source = context.text
+        offset = context.source_span.start
+        prefix = context.name_before
+        before = source[prefix.start - offset : prefix.end - offset]
         if context.kind == "short_reporter":
             region = context.pin_region
-            marker = re.search(rf"\b{AT_JOIN}", source[region.start : region.end], re.I)
-            pin = pin_after(source, region.start + marker.end(), region.end) if marker is not None else None
+            start, end = region.start - offset, region.end - offset
+            marker = re.search(rf"\b{AT_JOIN}", source[start:end], re.I)
+            pin = pin_after(source, start + marker.end(), end) if marker is not None else None
             prediction = FieldPrediction(
-                context_span=Span(0, len(source)),
+                context_span=context.source_span,
                 case_name=read_short_case_name(before, context.name_before.start, context.known_names),
-                pin_cite=Span(*pin) if pin is not None else None,
+                pin_cite=Span(offset + pin[0], offset + pin[1]) if pin is not None else None,
             )
         else:
             suffix = context.court_date_after
-            court, date = read_court_and_date(source[suffix.start : suffix.end], suffix.start)
+            court, date = read_court_and_date(
+                source[suffix.start - offset : suffix.end - offset], suffix.start
+            )
+            pin = read_pin_cite(source, context.pin_region.start - offset, context.pin_region.end - offset)
+            locator = context.locator
             prediction = FieldPrediction(
-                context_span=Span(0, len(source)),
+                context_span=context.source_span,
                 case_name=read_case_name(
                     before,
                     context.name_before.start,
-                    source[locator.start : locator.end] if context.kind == "reporter" else None,
+                    source[locator.start - offset : locator.end - offset]
+                    if context.kind == "reporter"
+                    else None,
                 ),
                 court=court,
                 date=date,
-                pin_cite=read_pin_cite(source, context.pin_region.start, context.pin_region.end),
+                pin_cite=Span(offset + pin.start, offset + pin.end) if pin is not None else None,
             )
-        prediction.validate_source(source, locator)
+        prediction.validate_context(context)
         return prediction
 
-    def predict_many(
-        self,
-        source: str,
-        locators: tuple[Span, ...],
-        *,
-        contexts: tuple[FieldContext, ...] | None = None,
-    ) -> tuple[FieldPrediction, ...]:
-        """Prepare source boundaries once and return one prediction per anchor."""
-        validate_reader_inputs(source, locators, contexts)
-        if not locators:
-            return ()
-        prepared = (
-            contexts
-            if contexts is not None
-            else source_contexts(
-                source,
-                locators,
-                case_name_window=self.case_name_window,
-                post_locator_window=self.post_locator_window,
-                colocation_max_meaningful_gap=self.colocation_max_meaningful_gap,
-            )
-        )
-        validate_reader_inputs(source, locators, prepared)
-        return tuple(
-            self._predict(source, locator, context)
-            for locator, context in zip(locators, prepared, strict=True)
-        )
+    def predict_many(self, contexts: tuple[LocatorContext, ...]) -> tuple[FieldPrediction, ...]:
+        """Return one prediction for each already prepared locator context."""
+        validate_contexts(contexts)
+        return tuple(self._predict(context) for context in contexts)

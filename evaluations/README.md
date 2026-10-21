@@ -149,12 +149,15 @@ than a hard cap.
 and `_PIN_CITE` source to exactly `RULE` or `ML`. No field source is defaulted
 in code; lowercase values and automatic fallback modes are rejected.
 Selecting any ML field while inference is disabled raises before document work.
-When enabled, the configured checkpoint, revision, variant, device, context,
-and batch size are validated before a run directory is created.
+Shared context-before and context-after settings are required in every mode.
+When ML is enabled, checkpoint, revision, variant, device, and batch size are also
+validated before a run directory is created.
 
 The required `grow_roots.read_root_fields.predict_fields` substage saves the
 four rule spans and, when enabled, one four-field ML prediction per full
-citation. It does not change any field reading. The same `resolve_case_names`,
+citation. It constructs one locator context internally and passes the exact same
+object to both readers, whose sole input is `LocatorContext`. Neither reader
+rediscovers locators or chooses a different excerpt. It does not change any field reading. The same `resolve_case_names`,
 `resolve_courts`, `resolve_dates`, and `resolve_pin_cites` substages then select
 their configured saved spans and normalize them. They never rerun extraction.
 Reporter-based court inference remains in the court-consuming substage.
