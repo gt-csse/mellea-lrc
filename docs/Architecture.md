@@ -142,22 +142,22 @@ Only identical result types and annotation-file loading are shared.
 `experiments/` and `archive/` are outside the installed package and production
 workflows.
 
-## Citation-field reader boundary
+## Citation-field reading
 
-`field_extraction/` owns the standalone rule and ML span readers and their shared
-prediction types. Its base installation needs only the parsing dependencies;
-model weights and full-pipeline runtimes are optional extras. It imports neither
-Document/Citation nor stage writers. `parsing/span.py` supplies the shared source
-offset type without importing the application model graph.
+Rule reading belongs to the extraction substages that own each field. Their
+Document context includes colocation groups, neighboring locators, and known
+case-name aliases. They read a span and append its typed normalization to the
+citation's field history. These relationships are part of the rule algorithm,
+not an input contract imposed on ML inference.
 
-The existing prediction substage constructs a `LocatorContext` from the source
-excerpt, target locator, and shared boundaries. That same object is the only
-input to `RuleFieldReader.predict(context)` and `MLCiteReader.predict(context)`.
-Neither reader rediscovers locators, reconstructs context, or trims the excerpt.
-Context construction stays inside the prediction substage; it adds no Document
-API, checkpoint, or durable citation field.
+An optional ML prediction substage makes one joint inference for case name,
+court, date, and pincite, and stores the raw result in
+`citation.ml_field_reading`. The same downstream field substages select `RULE`
+or `ML` independently. Normalization and reporter-based court inference stay
+there. The model adapter in `extraction/field_readers/ml_cite/` handles model loading and span
+inference; it does not discover locators or write Document histories.
 
-The prediction substage caches raw rule and optional ML readings on citations.
-Later field substages select the configured saved source and append normalized
-field readings. Court inference remains in the court substage. Training projects
-import these readers rather than copy the rule implementation.
+Rule-versus-ML comparisons use the existing `grow_roots` and `grow_leaves`
+workflow reports in this repository, with the same source corpus and annotation
+targets. The ML-cite training repository remains independent of Document-level
+colocation and rule context.

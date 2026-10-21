@@ -16,9 +16,17 @@ authors = [
 ]
 requires-python = ">= 3.11"
 dependencies = [
+    "courts-db>=0.10.27,<0.11",
     "eyecite>=2.7,<3",
+    "httpx>=0.28,<1",
+    "mellea>=0.7,<0.8",
+    "openai>=3,<4",
     "pydantic>=2,<3",
     "pyahocorasick>=2.3,<3",
+    "pypdf>=6,<7",
+    "python-dotenv>=1,<2",
+    "rapidfuzz>=3.14.5,<4",
+    "reporters-db>=3.2,<4",
 ]
 classifiers = [
     "Operating System :: MacOS",
@@ -38,16 +46,6 @@ text = "MIT"
 mellea-lrc = "mellea_lrc.cli:main"
 
 [project.optional-dependencies]
-pipeline = [
-    "courts-db>=0.10.27,<0.11",
-    "httpx>=0.28,<1",
-    "mellea>=0.7,<0.8",
-    "openai>=3,<4",
-    "pypdf>=6,<7",
-    "python-dotenv>=1,<2",
-    "rapidfuzz>=3.14.5,<4",
-    "reporters-db>=3.2,<4",
-]
 ml-cite = [
     "torch>=2.6,<3",
     "transformers>=4.51.3,<5",
@@ -66,7 +64,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 preprocessing = [
-    "mellea-lrc[pipeline]",
     "docling>=2.0",
 ]
 dev = [

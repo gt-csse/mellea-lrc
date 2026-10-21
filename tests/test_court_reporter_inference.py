@@ -6,7 +6,6 @@ from mellea_lrc.api import (
     find_docket_locators,
     find_full_reporter_locators,
     resolve_colocations,
-    predict_root_fields,
     resolve_courts,
     resolve_dates,
 )
@@ -18,7 +17,7 @@ def _through_courts(locator: str, year: int = 2000) -> Document:
     document = find_full_reporter_locators(document)
     document = find_docket_locators(document)
     document = resolve_colocations(document)
-    return resolve_courts(predict_root_fields(document))
+    return resolve_courts(document)
 
 
 @pytest.mark.parametrize(

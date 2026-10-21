@@ -26,6 +26,8 @@ async def grow_leaves(
     """Attach short forms to formed roots through five resumable groups."""
     fields = field_extraction or FieldExtractionConfig.from_env()
     omitted = () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
+    if not fields.ml_enabled:
+        omitted += ("grow_leaves.grow_short_reporter_leaves.predict_fields_ml",)
     validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted)
     if fields.ml_enabled:
         for citation in document.short_reporters:

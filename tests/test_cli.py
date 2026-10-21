@@ -6,7 +6,7 @@ import pytest
 
 from mellea_lrc import cli
 from mellea_lrc.config import field_extraction
-from mellea_lrc.field_extraction import ml_cite
+from mellea_lrc.extraction.field_readers import ml_cite
 from mellea_lrc.model.document import Document
 
 WORKFLOWS = (

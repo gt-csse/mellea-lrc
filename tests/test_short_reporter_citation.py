@@ -12,19 +12,17 @@ from mellea_lrc.api import (
     attribute_short_reporter_citations,
     find_short_reporter_citations,
     grow_roots,
-    predict_short_reporter_fields,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
-from mellea_lrc.parsing.reporters import full_reporter_readings
-from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewOutcome
-from mellea_lrc.parsing.events import events
 from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE as SHORT_REPORTER_SUBSTAGE
-from mellea_lrc.parsing.reporters import short_reporter_readings
+from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewOutcome
 from mellea_lrc.model import FullReporterCitation, ShortReporterCitation, Span
 from mellea_lrc.model.citations import AttributionResult, LeafReviewDecision
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.ivr import IvrAttempt, IvrRun
+from mellea_lrc.parsing.events import events
+from mellea_lrc.parsing.reporters import full_reporter_readings, short_reporter_readings
 
 ATTRIBUTION_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.attribute_citations"
 COLOCATION_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.resolve_colocations"
@@ -32,9 +30,7 @@ CASE_NAME_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.resolve_case_names"
 
 
 def _read_short_names(document: Document) -> Document:
-    return resolve_short_reporter_case_names(
-        predict_short_reporter_fields(resolve_short_reporter_colocations(document))
-    )
+    return resolve_short_reporter_case_names(resolve_short_reporter_colocations(document))
 
 
 def test_stage_readers_share_eyecite_matching_for_full_and_short_kinds() -> None:
@@ -206,10 +202,9 @@ def test_short_reporter_attribution_requires_creation_and_rejects_repeats(source
         asyncio.run(attribute_short_reporter_citations(created, review=False))
     attributed = asyncio.run(attribute_short_reporter_citations(_read_short_names(created), review=False))
 
-    assert attributed.substage_runs[-5:] == (
+    assert attributed.substage_runs[-4:] == (
         SHORT_REPORTER_SUBSTAGE,
         COLOCATION_SUBSTAGE,
-        "grow_leaves.grow_short_reporter_leaves.predict_fields",
         CASE_NAME_SUBSTAGE,
         ATTRIBUTION_SUBSTAGE,
     )

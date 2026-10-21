@@ -13,7 +13,6 @@ from mellea_lrc.api import (
     attribute_short_reporter_citations,
     find_id_citations,
     grow_roots,
-    predict_short_reporter_fields,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
@@ -65,7 +64,7 @@ def test_short_reporter_rule_rejects_shared_volume_or_name_disagreement(tmp_path
     document = rooted(tmp_path, text)
     document = find_short_reporter_citations(document)
     document = resolve_short_reporter_colocations(document)
-    document = resolve_short_reporter_case_names(predict_short_reporter_fields(document))
+    document = resolve_short_reporter_case_names(document)
     document = asyncio.run(attribute_short_reporter_citations(document, review=False))
 
     short = document.short_reporters[0]
@@ -556,7 +555,7 @@ def test_shared_leaf_stages_preserve_the_settled_short_reporter(tmp_path: Path) 
     )
     document = find_short_reporter_citations(rooted(tmp_path, text))
     document = resolve_short_reporter_colocations(document)
-    document = resolve_short_reporter_case_names(predict_short_reporter_fields(document))
+    document = resolve_short_reporter_case_names(document)
     document = asyncio.run(attribute_short_reporter_citations(document, review=False))
     short = document.short_reporters[0]
     assert [node.substage for node in short.nodes][-2:] == [

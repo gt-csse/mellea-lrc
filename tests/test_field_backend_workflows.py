@@ -1,4 +1,4 @@
-"""One prediction checkpoint feeds independently configured normalization stages."""
+"""One optional inference checkpoint feeds independently configured field readers."""
 
 import asyncio
 import json
@@ -7,15 +7,15 @@ from importlib import import_module
 import pytest
 from pydantic import ValidationError
 
-from mellea_lrc.config.field_extraction import FieldExtractionConfig, FieldSource
-from mellea_lrc.extraction.predict_root_fields import SUBSTAGE as ROOT_PREDICTION
-from mellea_lrc.extraction.predict_short_reporter_fields import SUBSTAGE as SHORT_PREDICTION
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
+from mellea_lrc.extraction.predict_root_fields_ml import SUBSTAGE as ROOT_ML
+from mellea_lrc.extraction.predict_short_reporter_fields_ml import SUBSTAGE as SHORT_ML
 from mellea_lrc.extraction.resolve_case_names import resolve_case_names
 from mellea_lrc.extraction.resolve_courts import resolve_courts
 from mellea_lrc.extraction.resolve_dates import resolve_dates
 from mellea_lrc.extraction.resolve_pin_cites import resolve_pin_cites
 from mellea_lrc.extraction.resolve_short_reporter_case_names import resolve_short_reporter_case_names
-from mellea_lrc.field_extraction.models import MLFieldPrediction
+from mellea_lrc.model.citations.ml_field_reading import MLFieldPrediction
 from mellea_lrc.model.document import Document
 from mellea_lrc.parsing.span import Span
 from mellea_lrc.workflows import validate_workflow_checkpoint
@@ -25,21 +25,13 @@ from mellea_lrc.workflows.grow_roots import grow_roots
 from mellea_lrc.workflows.grow_roots.read_root_fields import read_root_fields
 
 SOURCE = "Alpha v. Beta, 123 F.3d 456, 460 (2d Cir. 1997). See Alpha, 123 F.3d at 462."
-RULE = FieldExtractionConfig(
-    context_before=260,
-    context_after=260,
-    ml_enabled=False,
-    case_name=FieldSource.RULE,
-    court=FieldSource.RULE,
-    date=FieldSource.RULE,
-    pin_cite=FieldSource.RULE,
-)
+RULE = FieldExtractionConfig(ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE")
 ML = FieldExtractionConfig(
     ml_enabled=True,
-    case_name=FieldSource.ML,
-    court=FieldSource.ML,
-    date=FieldSource.ML,
-    pin_cite=FieldSource.ML,
+    case_name="ML",
+    court="ML",
+    date="ML",
+    pin_cite="ML",
     model_id="test/joint-bert",
     revision="a" * 40,
     variant="bert_augmented",
@@ -65,36 +57,25 @@ class FakeReader:
     def __init__(self):
         self.calls = []
 
-    def predict_many(self, contexts):
-        self.calls.append(contexts)
+    def predict_many(self, source, locator_spans):
+        self.calls.append((source, locator_spans))
         predictions = []
-        for context in contexts:
-            source = context.text
-            locator = Span(
-                context.locator.start - context.source_span.start,
-                context.locator.end - context.source_span.start,
-            )
+        for locator in locator_spans:
             short = " at " in source[locator.start : locator.end]
             name = "Alpha" if short else "Alpha v. Beta"
             name_start = source.rfind(name, 0, locator.start)
-            fields = {
-                "case_name": Span(
-                    context.source_span.start + name_start, context.source_span.start + name_start + len(name)
-                )
-            }
+            fields = {"case_name": Span(name_start, name_start + len(name))}
             # Deliberately different from the root's written pin to prove each
             # reader chooses its configured source rather than the raw cache.
             for field, quote in (("court", "2d Cir."), ("date", "1997"), ("pin_cite", "462")):
                 start = source.index(quote)
-                fields[field] = Span(
-                    context.source_span.start + start, context.source_span.start + start + len(quote)
-                )
+                fields[field] = Span(start, start + len(quote))
             predictions.append(
                 MLFieldPrediction(
                     model_id=ML.model_id,
                     revision=ML.revision,
                     variant=ML.variant,
-                    context_span=context.source_span,
+                    context_span=Span(0, len(source)),
                     **fields,
                 )
             )
@@ -105,9 +86,9 @@ class FakeReader:
 def reader(monkeypatch):
     fake = FakeReader()
     for module_name in (
-        "mellea_lrc.field_extraction.ml_cite",
-        "mellea_lrc.extraction.predict_root_fields",
-        "mellea_lrc.extraction.predict_short_reporter_fields",
+        "mellea_lrc.extraction.field_readers.ml_cite",
+        "mellea_lrc.extraction.predict_root_fields_ml",
+        "mellea_lrc.extraction.predict_short_reporter_fields_ml",
     ):
         monkeypatch.setattr(import_module(module_name), "get_ml_reader", lambda config: fake)
     return fake
@@ -142,8 +123,8 @@ def test_inference_and_field_writes_have_separate_recoverable_checkpoints(reader
     root_snapshots, short_snapshots = [], []
     roots = root_run(Document.from_source(SOURCE), ML, root_snapshots)
     result = short_run(roots, ML, short_snapshots)
-    assert [len(contexts) for contexts in reader.calls] == [1, 1]
-    inference = roots.get_substage(ROOT_PREDICTION)
+    assert [len(locators) for _, locators in reader.calls] == [1, 1]
+    inference = roots.get_substage(ROOT_ML)
     inferred = inference.full_locators[0]
     assert inferred.ml_field_reading is not None
     assert inferred.case_name == inferred.court == inferred.date == ()
@@ -182,13 +163,13 @@ def test_each_partial_ml_checkpoint_resumes_without_repeating_inference(reader):
     for snapshot in root_snapshots:
         reader.calls.clear()
         assert root_run(reload(snapshot), ML) == roots
-        assert len(reader.calls) == (0 if ROOT_PREDICTION in snapshot.substage_runs else 1)
+        assert len(reader.calls) == (0 if ROOT_ML in snapshot.substage_runs else 1)
     for snapshot in short_snapshots:
         if SHORT_STAGE in snapshot.stage_runs:
             continue
         reader.calls.clear()
         assert short_run(reload(snapshot), ML) == expected
-        assert len(reader.calls) == (0 if SHORT_PREDICTION in snapshot.substage_runs else 1)
+        assert len(reader.calls) == (0 if SHORT_ML in snapshot.substage_runs else 1)
 
 
 def test_rule_workflows_run_all_field_checkpoints_without_loading_ml(monkeypatch):
@@ -196,28 +177,26 @@ def test_rule_workflows_run_all_field_checkpoints_without_loading_ml(monkeypatch
         pytest.fail("Rule extraction must not load or call the ML runtime")
 
     for module_name in (
-        "mellea_lrc.field_extraction.ml_cite",
-        "mellea_lrc.extraction.predict_root_fields",
-        "mellea_lrc.extraction.predict_short_reporter_fields",
+        "mellea_lrc.extraction.field_readers.ml_cite",
+        "mellea_lrc.extraction.predict_root_fields_ml",
+        "mellea_lrc.extraction.predict_short_reporter_fields_ml",
     ):
         monkeypatch.setattr(import_module(module_name), "get_ml_reader", unexpected)
-    monkeypatch.setattr(import_module("mellea_lrc.field_extraction.ml_cite"), "_load_runtime", unexpected)
+    monkeypatch.setattr(
+        import_module("mellea_lrc.extraction.field_readers.ml_cite.reader"), "_load_runtime", unexpected
+    )
     roots = root_run(Document.from_source(SOURCE), RULE)
     result = short_run(roots, RULE)
     assert set(ROOT_FIELDS).issubset(result.substage_runs)
     assert SHORT_CASE_NAMES in result.substage_runs
-    assert ROOT_PREDICTION in result.substage_runs and SHORT_PREDICTION in result.substage_runs
-    assert all(
-        citation.rule_field_reading is not None
-        for citation in (*result.full_locators, *result.short_reporters)
-    )
+    assert ROOT_ML not in result.substage_runs and SHORT_ML not in result.substage_runs
     assert all(citation.ml_field_reading is None for citation in result.citations)
     assert roots.roots[0].pin_cite[-1].quote == "460"
     assert result.short_reporters[0].pin_cite[-1].quote == "462"
 
 
 def test_mixed_sources_use_rule_pin_and_saved_ml_spans_without_extra_inference(reader):
-    mixed = ML.model_copy(update={"pin_cite": FieldSource.RULE})
+    mixed = ML.model_copy(update={"pin_cite": "RULE"})
     roots = root_run(Document.from_source(SOURCE), mixed)
     assert len(reader.calls) == 1
     root = roots.roots[0]
@@ -225,17 +204,17 @@ def test_mixed_sources_use_rule_pin_and_saved_ml_spans_without_extra_inference(r
     assert root.pin_cite[-1].quote == "460"
     assert root.case_name[-1].quote == "Alpha v. Beta"
     reader.calls.clear()
-    replay = root_run(reload(roots.get_substage(ROOT_PREDICTION)), ML)
+    replay = root_run(reload(roots.get_substage(ROOT_ML)), ML)
     assert reader.calls == []
     assert replay.roots[0].pin_cite[-1].quote == "462"
     assert replay.roots[0].ml_field_reading == root.ml_field_reading
 
 
 def test_enabled_inference_can_be_kept_even_when_all_fields_choose_rules(reader):
-    config = ML.model_copy(update=dict.fromkeys(("case_name", "court", "date", "pin_cite"), FieldSource.RULE))
+    config = ML.model_copy(update=dict.fromkeys(("case_name", "court", "date", "pin_cite"), "RULE"))
     roots = root_run(Document.from_source(SOURCE), config)
     assert len(reader.calls) == 1
-    assert ROOT_PREDICTION in roots.substage_runs
+    assert ROOT_ML in roots.substage_runs
     assert roots.roots[0].ml_field_reading is not None
     assert roots.roots[0].pin_cite[-1].quote == "460"
 
@@ -271,7 +250,7 @@ def test_changed_cached_model_is_rejected_before_runtime_loading(
     roots = root_run(Document.from_source(SOURCE), ML)
     short = entrypoint in {"grow_leaves", "grow_short_reporter_leaves"}
     saved = short_run(roots, ML) if short else roots
-    saved = reload(saved.get_substage(SHORT_PREDICTION if short else ROOT_PREDICTION))
+    saved = reload(saved.get_substage(SHORT_ML if short else ROOT_ML))
     serialized = saved.model_dump_json()
     changed = ML.model_copy(update={setting: replacement})
     reader.calls.clear()
@@ -298,8 +277,7 @@ def test_changed_cached_model_is_rejected_before_runtime_loading(
     (resolve_case_names, resolve_courts, resolve_dates, resolve_pin_cites, resolve_short_reporter_case_names),
 )
 @pytest.mark.parametrize("marked", (False, True), ids=("missing_checkpoint", "missing_citation_prediction"))
-@pytest.mark.parametrize("config", (RULE, ML), ids=("rule", "ml"))
-def test_field_consumers_require_checkpoint_and_cached_prediction(field_reader, marked, config):
+def test_ml_field_readers_require_checkpoint_and_citation_prediction(field_reader, marked):
     roots = root_run(Document.from_source(SOURCE), RULE)
     short = field_reader is resolve_short_reporter_case_names
     document = (
@@ -308,10 +286,10 @@ def test_field_consumers_require_checkpoint_and_cached_prediction(field_reader, 
         else roots.get_substage("grow_roots.read_root_fields.resolve_colocations")
     )
     if marked:
-        document = document.complete_substage(SHORT_PREDICTION if short else ROOT_PREDICTION)
+        document = document.complete_substage(SHORT_ML if short else ROOT_ML)
     serialized = document.model_dump_json()
-    with pytest.raises(ValueError, match="prediction is unavailable" if marked else "Predict"):
-        field_reader(document, field_extraction=config)
+    with pytest.raises(ValueError, match="prediction is unavailable"):
+        field_reader(document, field_extraction=ML)
     assert document.model_dump_json() == serialized
 
 
@@ -322,50 +300,8 @@ def test_field_consumers_require_checkpoint_and_cached_prediction(field_reader, 
 def test_direct_ml_field_readers_reject_predictions_from_another_checkpoint(reader, field_reader):
     roots = root_run(Document.from_source(SOURCE), ML)
     short = field_reader is resolve_short_reporter_case_names
-    document = (
-        short_run(roots, ML).get_substage(SHORT_PREDICTION) if short else roots.get_substage(ROOT_PREDICTION)
-    )
+    document = short_run(roots, ML).get_substage(SHORT_ML) if short else roots.get_substage(ROOT_ML)
     serialized = document.model_dump_json()
     with pytest.raises(ValueError, match="match the configured model"):
         field_reader(document, field_extraction=ML.model_copy(update={"revision": "b" * 40}))
     assert document.model_dump_json() == serialized
-
-
-def test_rules_are_predicted_once_then_reused_by_all_consumers_and_resume(monkeypatch):
-    from mellea_lrc.field_extraction.rule import RuleFieldReader
-
-    calls = []
-    original = RuleFieldReader.predict_many
-
-    def predict(self, contexts):
-        calls.append(contexts)
-        return original(self, contexts)
-
-    monkeypatch.setattr(RuleFieldReader, "predict_many", predict)
-    roots = root_run(Document.from_source(SOURCE), RULE)
-    assert len(calls) == 1
-    saved = reload(roots.get_substage(ROOT_PREDICTION))
-    assert root_run(saved, RULE) == roots
-    assert len(calls) == 1
-    short = short_run(roots, RULE)
-    assert len(calls) == 2
-    saved_short = reload(short.get_substage(SHORT_PREDICTION))
-    assert short_run(saved_short, RULE) == short
-    assert len(calls) == 2
-
-
-def test_rule_window_drift_is_rejected_before_loading_ml(reader, monkeypatch):
-    from mellea_lrc.config.extraction import stable
-
-    roots = root_run(Document.from_source(SOURCE), ML)
-    saved = reload(roots.get_substage(ROOT_PREDICTION))
-    policy = stable().model_copy(update={"case_name_window": 999})
-
-    def unexpected(config):
-        pytest.fail("Check saved rule settings before loading an ML model")
-
-    monkeypatch.setattr(FieldExtractionConfig, "validate_runtime", unexpected)
-    with pytest.raises(ValueError, match="Rule prediction windows changed"):
-        read_root_fields(saved, policy, field_extraction=ML)
-    with pytest.raises(ValueError, match="Rule prediction windows changed"):
-        asyncio.run(grow_roots(saved, rules=policy, field_extraction=ML))
