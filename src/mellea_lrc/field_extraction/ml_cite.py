@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from mellea_lrc.field_extraction.models import MLFieldPrediction, MLReaderConfig
+from mellea_lrc.field_extraction.models import (
+    FieldContext,
+    MLFieldPrediction,
+    MLReaderConfig,
+    validate_reader_inputs,
+)
 from mellea_lrc.parsing.span import Span
 
 _FIELDS = ("case_name", "court", "date", "pin_cite")
@@ -89,15 +94,25 @@ class MLCiteReader:
             raise ValueError(f"{field}: model span does not match its source quote")
         return Span(context_span.start + start, context_span.start + end)
 
-    def predict(self, source: str, locator: Span) -> MLFieldPrediction:
+    def predict(
+        self, source: str, locator: Span, *, context: FieldContext | None = None
+    ) -> MLFieldPrediction:
         """Read one supplied source context, with the same contract as RuleFieldReader."""
-        return self.predict_many(source, (locator,))[0]
+        return self.predict_many(source, (locator,), contexts=(context,) if context is not None else None)[0]
 
-    def predict_many(self, source: str, locator_spans: tuple[Span, ...]) -> tuple[MLFieldPrediction, ...]:
+    def predict_many(
+        self,
+        source: str,
+        locators: tuple[Span, ...],
+        *,
+        contexts: tuple[FieldContext, ...] | None = None,
+    ) -> tuple[MLFieldPrediction, ...]:
         """Batch locator-anchored inputs; each inference reads all four fields."""
-        if not isinstance(source, str):
-            raise TypeError("source must be a string")
-        encoded = [self._encode_context(source, span) for span in locator_spans]
+        # Structural hints are the same source-only input accepted by rules.
+        # ML still reads its trained context window and predicts all four heads;
+        # rule boundaries do not suppress or rewrite model predictions.
+        validate_reader_inputs(source, locators, contexts)
+        encoded = [self._encode_context(source, span) for span in locators]
         results = []
         for start in range(0, len(encoded), self.config.batch_size):
             batch = encoded[start : start + self.config.batch_size]
@@ -119,6 +134,8 @@ class MLCiteReader:
                         **spans,
                     )
                 )
+        for result, locator in zip(results, locators, strict=True):
+            result.validate_source(source, locator)
         return tuple(results)
 
 

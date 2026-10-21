@@ -269,6 +269,7 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
         SUBSTAGE,
         "grow_roots.read_root_fields.resolve_docket_entries",
         "grow_roots.read_root_fields.resolve_colocations",
+        "grow_roots.read_root_fields.predict_fields",
         "grow_roots.read_root_fields.resolve_case_names",
         "grow_roots.read_root_fields.resolve_courts",
         "grow_roots.read_root_fields.resolve_dates",

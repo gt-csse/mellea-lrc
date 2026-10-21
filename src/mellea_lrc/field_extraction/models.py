@@ -2,11 +2,73 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mellea_lrc.parsing.span import Span
+
+
+class FieldContext(BaseModel):
+    """Source-derived reading boundaries, without document or annotation state.
+
+    Colocated locators share the prefix before their group and the suffix
+    after it. Pinpoints remain local to each locator. Known short names are
+    optional source-derived aliases, never normalized or gold field values.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["reporter", "docket", "short_reporter"]
+    name_before: Span
+    court_date_after: Span
+    pin_region: Span
+    known_names: tuple[str, ...] = ()
+
+    @field_validator("known_names")
+    @classmethod
+    def _valid_names(cls, names: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not name.strip() for name in names):
+            raise ValueError("Known case names must be nonempty strings")
+        return names
+
+    def validate_source(self, source: str, locator: Span) -> None:
+        """Reject impossible boundaries rather than quietly changing context."""
+        if any(span.end > len(source) for span in (self.name_before, self.court_date_after, self.pin_region)):
+            raise ValueError("Field reading context is outside the source")
+        if self.name_before.end > locator.start:
+            raise ValueError("Case-name prefix must end before the target locator")
+        if self.court_date_after.start < locator.end:
+            raise ValueError("Court/date suffix must start after the target locator")
+        if self.kind == "short_reporter":
+            if not locator.start <= self.pin_region.start <= self.pin_region.end <= locator.end:
+                raise ValueError("Short reporter pinpoint region must be inside the target locator")
+        elif self.pin_region.start < locator.end:
+            raise ValueError("Full-citation pinpoint region must start after the target locator")
+
+
+def validate_reader_inputs(
+    source: str, locators: tuple[Span, ...], contexts: tuple[FieldContext, ...] | None
+) -> None:
+    """Common fail-fast source contract used by both public readers."""
+    if not isinstance(source, str):
+        raise TypeError("Field prediction source must be a string")
+    if not isinstance(locators, tuple) or any(not isinstance(locator, Span) for locator in locators):
+        raise TypeError("Field locators must be a tuple of Spans")
+    if contexts is not None and (
+        not isinstance(contexts, tuple)
+        or len(contexts) != len(locators)
+        or any(not isinstance(context, FieldContext) for context in contexts)
+    ):
+        raise ValueError("Reading contexts must contain exactly one FieldContext for each locator")
+    for index, locator in enumerate(locators):
+        if (
+            not 0 <= locator.start < locator.end <= len(source)
+            or not source[locator.start : locator.end].strip()
+        ):
+            raise ValueError("Target locator is outside the source, empty, or blank")
+        if contexts is not None:
+            contexts[index].validate_source(source, locator)
 
 
 class MLReaderConfig(BaseModel):

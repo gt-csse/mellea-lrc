@@ -67,8 +67,10 @@ def test_missing_source_fails_before_loading_document(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("changes", "error", "message"),
     [
-        ({"CASE_NAME": "ml"}, ValueError, "ML_ENABLED=true"),
+        ({"CASE_NAME": "ML"}, ValueError, "ML_ENABLED=true"),
         ({"COURT": None}, RuntimeError, "FIELD_EXTRACTION_COURT"),
+        ({"CASE_NAME": "rule"}, ValueError, "case_name"),
+        ({"COURT": "ml"}, ValueError, "court"),
     ],
 )
 def test_invalid_field_policy_fails_before_preprocessing_or_output(
@@ -79,10 +81,10 @@ def test_invalid_field_policy_fails_before_preprocessing_or_output(
     output = tmp_path / "not-created" / "document.json"
     settings = {
         "ML_ENABLED": "false",
-        "CASE_NAME": "rule",
-        "COURT": "rule",
-        "DATE": "rule",
-        "PIN_CITE": "rule",
+        "CASE_NAME": "RULE",
+        "COURT": "RULE",
+        "DATE": "RULE",
+        "PIN_CITE": "RULE",
     } | changes
     monkeypatch.setattr(
         field_extraction,
@@ -99,16 +101,19 @@ def test_invalid_field_policy_fails_before_preprocessing_or_output(
     assert not output.parent.exists()
 
 
-def test_unloadable_enabled_model_fails_before_preprocessing_or_output(tmp_path, monkeypatch):
+@pytest.mark.parametrize("case_name_source", ["ML", "RULE"])
+def test_unloadable_enabled_model_fails_before_preprocessing_or_output(
+    tmp_path, monkeypatch, case_name_source
+):
     source = tmp_path / "source.txt"
     source.write_text("A legal document", encoding="utf-8")
     output = tmp_path / "not-created" / "document.json"
     settings = {
         "ML_ENABLED": "true",
-        "CASE_NAME": "ml",
-        "COURT": "rule",
-        "DATE": "rule",
-        "PIN_CITE": "rule",
+        "CASE_NAME": case_name_source,
+        "COURT": "RULE",
+        "DATE": "RULE",
+        "PIN_CITE": "RULE",
         "MODEL_ID": "test/model",
         "REVISION": "a" * 40,
         "VARIANT": "augmented",

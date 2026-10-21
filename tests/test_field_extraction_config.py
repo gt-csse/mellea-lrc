@@ -8,16 +8,16 @@ import sys
 import pytest
 from pydantic import ValidationError
 
-from mellea_lrc.config.field_extraction import FieldExtractionConfig
+from mellea_lrc.config.field_extraction import FieldExtractionConfig, FieldSource
 from mellea_lrc.field_extraction import ml_cite
 
 _PREFIX = "MELLEA_LRC_FIELD_EXTRACTION_"
 _RULE = {
     "ML_ENABLED": "false",
-    "CASE_NAME": "rule",
-    "COURT": "rule",
-    "DATE": "rule",
-    "PIN_CITE": "rule",
+    "CASE_NAME": "RULE",
+    "COURT": "RULE",
+    "DATE": "RULE",
+    "PIN_CITE": "RULE",
 }
 _CHECKPOINT = {
     "MODEL_ID": "gt-csse/ML-cite",
@@ -41,14 +41,14 @@ def _config(**changes):
 def test_all_rule_sources_need_no_checkpoint_and_do_not_load_optional_runtime(monkeypatch):
     config = _config()
     assert config == FieldExtractionConfig(
-        ml_enabled=False, case_name="rule", court="rule", date="rule", pin_cite="rule"
+        ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
     )
     monkeypatch.setattr(ml_cite, "get_ml_reader", lambda _: pytest.fail("rule preflight loaded ML"))
     config.validate_runtime()
     code = (
         "from mellea_lrc.config.field_extraction import FieldExtractionConfig; import sys; "
-        "c = FieldExtractionConfig(ml_enabled=False, case_name='rule', court='rule', "
-        "date='rule', pin_cite='rule'); c.validate_runtime(); "
+        "c = FieldExtractionConfig(ml_enabled=False, case_name='RULE', court='RULE', "
+        "date='RULE', pin_cite='RULE'); c.validate_runtime(); "
         "assert 'torch' not in sys.modules; assert 'transformers' not in sys.modules"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
@@ -61,7 +61,7 @@ def test_every_policy_setting_is_required_without_code_defaults(key):
         FieldExtractionConfig.from_env(environ=values)
 
 
-@pytest.mark.parametrize("value", ["True", "False", "1", "0", "yes", "no", "ml", "rule"])
+@pytest.mark.parametrize("value", ["True", "False", "1", "0", "yes", "no", "ML", "RULE"])
 def test_enabled_env_is_explicit_lowercase_boolean(value):
     with pytest.raises(ValueError, match="must be exactly true or false"):
         _config(ML_ENABLED=value)
@@ -70,20 +70,34 @@ def test_enabled_env_is_explicit_lowercase_boolean(value):
 @pytest.mark.parametrize("field", ["case_name", "court", "date", "pin_cite"])
 def test_ml_source_is_rejected_if_inference_is_disabled(field):
     with pytest.raises(ValidationError, match="ML_ENABLED=true"):
-        _config(**{field.upper(): "ml"})
+        _config(**{field.upper(): "ML"})
 
 
-@pytest.mark.parametrize("source", ["bert", "ml_cite_bert", "ML", "rules", True, 1])
+@pytest.mark.parametrize("source", ["rule", "ml", "Rule", "Ml", "bert", "ml_cite_bert", "rules", True, 1])
 def test_field_sources_do_not_accept_alternative_names_or_types(source):
     with pytest.raises(ValidationError):
-        FieldExtractionConfig(ml_enabled=False, case_name=source, court="rule", date="rule", pin_cite="rule")
+        FieldExtractionConfig(ml_enabled=False, case_name=source, court="RULE", date="RULE", pin_cite="RULE")
+
+
+@pytest.mark.parametrize("field", ["CASE_NAME", "COURT", "DATE", "PIN_CITE"])
+@pytest.mark.parametrize("source", ["rule", "ml", "Rule", "Ml"])
+def test_each_env_field_rejects_lowercase_and_mixed_case(field, source):
+    with pytest.raises(ValidationError, match=field.lower()):
+        _config(**{field: source})
+
+
+def test_field_source_enum_and_native_json_have_the_same_explicit_values():
+    config = _config()
+    assert config.case_name is config.court is config.date is config.pin_cite is FieldSource.RULE
+    assert FieldExtractionConfig.model_validate_json(config.model_dump_json()) == config
+    assert config.model_dump(mode="json")["case_name"] == "RULE"
 
 
 @pytest.mark.parametrize("enabled", ["true", 1, 0, None])
 def test_direct_configuration_also_requires_strict_boolean(enabled):
     with pytest.raises(ValidationError):
         FieldExtractionConfig(
-            ml_enabled=enabled, case_name="rule", court="rule", date="rule", pin_cite="rule"
+            ml_enabled=enabled, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
         )
 
 
@@ -98,7 +112,7 @@ def test_enabling_inference_requires_every_checkpoint_setting(key):
 
 def test_direct_enabled_configuration_requires_complete_checkpoint():
     with pytest.raises(ValidationError, match="ML field extraction requires"):
-        FieldExtractionConfig(ml_enabled=True, case_name="rule", court="rule", date="rule", pin_cite="rule")
+        FieldExtractionConfig(ml_enabled=True, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE")
 
 
 @pytest.mark.parametrize(
@@ -120,13 +134,13 @@ def test_enabled_inference_can_be_kept_while_each_field_selects_rules(monkeypatc
     monkeypatch.setattr(ml_cite, "get_ml_reader", lambda selected: calls.append(selected))
     config.validate_runtime()
     assert calls == [config.ml_reader_config()]
-    assert config.case_name == config.court == config.date == config.pin_cite == "rule"
+    assert config.case_name == config.court == config.date == config.pin_cite == "RULE"
 
 
 def test_mixed_field_selection_is_valid_and_preflight_load_errors_propagate(monkeypatch):
-    config = _config(**(_CHECKPOINT | {"ML_ENABLED": "true", "CASE_NAME": "ml", "DATE": "ml"}))
-    assert config.case_name == config.date == "ml"
-    assert config.court == config.pin_cite == "rule"
+    config = _config(**(_CHECKPOINT | {"ML_ENABLED": "true", "CASE_NAME": "ML", "DATE": "ML"}))
+    assert config.case_name == config.date == "ML"
+    assert config.court == config.pin_cite == "RULE"
 
     def broken(_):
         raise RuntimeError("checkpoint cannot load on selected device")
@@ -139,5 +153,5 @@ def test_mixed_field_selection_is_valid_and_preflight_load_errors_propagate(monk
 def test_removed_backend_is_not_a_supported_config_alias():
     with pytest.raises(ValidationError, match="backend"):
         FieldExtractionConfig(
-            ml_enabled=False, case_name="rule", court="rule", date="rule", pin_cite="rule", backend="rule"
+            ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE", backend="RULE"
         )

@@ -75,6 +75,7 @@ _ROOT_SUBSTAGES = (
     "grow_roots.discover_root_locators.hunt_docket_locators",
     "grow_roots.read_root_fields.resolve_docket_entries",
     "grow_roots.read_root_fields.resolve_colocations",
+    "grow_roots.read_root_fields.predict_fields",
     "grow_roots.read_root_fields.resolve_case_names",
     "grow_roots.read_root_fields.resolve_courts",
     "grow_roots.read_root_fields.resolve_dates",
@@ -149,26 +150,8 @@ _E2E_SUBSTAGES = (
         for workflow in ("grow_leaves", "validate_all_citation_content")
         for stage in get_workflow(workflow).stages
         for substage in stage.substages
-        if not substage.name.endswith(".predict_fields_ml")
     ),
 )
-
-
-def _enabled_field_substages(
-    substages: tuple[str, ...], field_extraction: FieldExtractionConfig
-) -> tuple[str, ...]:
-    """Insert raw inference before the same consuming field substages."""
-    enabled = [name for name in substages if not name.endswith(".predict_fields_ml")]
-    if field_extraction.ml_enabled:
-        for workflow in ("grow_roots", "grow_leaves"):
-            for stage in get_workflow(workflow).stages:
-                for index, substage in enumerate(stage.substages):
-                    if not substage.name.endswith(".predict_fields_ml"):
-                        continue
-                    previous = stage.substages[index - 1].name
-                    if previous in enabled:
-                        enabled.insert(enabled.index(previous) + 1, substage.name)
-    return tuple(enabled)
 
 
 def _configured_model_profiles() -> dict[str, dict[str, object]]:
@@ -375,10 +358,9 @@ async def _continue_field_substages(
     run_dir: Path,
     retrospective_date: date | None,
     courtlistener_client: CourtListenerClient | None,
-    field_extraction: FieldExtractionConfig,
 ) -> Document:
     """Append each remaining substage and atomically save its cumulative Document."""
-    enabled = _enabled_field_substages(_FIELD_RUN_SUBSTAGES, field_extraction)
+    enabled = _FIELD_RUN_SUBSTAGES
     for substage in _FIELD_SUBSTAGES:
         if substage in document.substage_runs:
             continue
@@ -701,22 +683,12 @@ async def _run(
         retry_body: dict[str, str] = {}
         documents: dict[str, Document] = {}
         reporter_inputs: dict[str, Document] = {}
-        enabled = _enabled_field_substages(
-            (
-                _E2E_SUBSTAGES
-                if end_to_end
-                else _FIELD_RUN_SUBSTAGES
-                if from_locator_review_documents is not None
-                else _RUN_SUBSTAGES
-            ),
-            field_extraction,
-        )
-        omitted_fields = tuple(
-            substage.name
-            for workflow in ("grow_roots", "grow_leaves")
-            for stage in get_workflow(workflow).stages
-            for substage in stage.substages
-            if substage.name.endswith(".predict_fields_ml") and not field_extraction.ml_enabled
+        enabled = (
+            _E2E_SUBSTAGES
+            if end_to_end
+            else _FIELD_RUN_SUBSTAGES
+            if from_locator_review_documents is not None
+            else _RUN_SUBSTAGES
         )
         input_directory, input_substage = next(
             (
@@ -770,10 +742,10 @@ async def _run(
                 original.substage_runs and document.get_substage(input_substage) != original
             ):
                 raise ValueError(f"Saved evaluation input differs for {filename}")
-            validate_workflow_checkpoint(document, "grow_roots", omitted_substages=omitted_fields)
+            validate_workflow_checkpoint(document, "grow_roots")
             validate_workflow_checkpoint(document, "validate_roots_citation_identity")
             if end_to_end:
-                validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted_fields)
+                validate_workflow_checkpoint(document, "grow_leaves")
                 validate_workflow_checkpoint(document, "validate_all_citation_content")
             marked = complete_stage_boundary(document, enabled)
             if artifact.exists() and marked != document:
@@ -856,7 +828,6 @@ async def _run(
                     run_dir=run_dir,
                     retrospective_date=cutoff,
                     courtlistener_client=courtlistener_client,
-                    field_extraction=field_extraction,
                 )
             else:
                 check_model_profiles()
