@@ -6,7 +6,7 @@ import re
 
 from eyecite.models import ReferenceCitation as EyeciteReferenceCitation
 
-from mellea_lrc.field_extraction.rule import read_short_case_name
+from mellea_lrc.extraction.resolve_case_names.reader import read_short_case_name
 from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import FullReporterCitation, latest
 from mellea_lrc.model.citations.fields.base import current_reading

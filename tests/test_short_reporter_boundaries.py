@@ -17,13 +17,12 @@ from mellea_lrc.api import (
     find_supra_citations,
     grow_leaves,
     grow_roots,
-    predict_short_reporter_fields,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
 from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE
-from mellea_lrc.parsing.reporters import short_reporter_readings
 from mellea_lrc.model.citations import IdCitation, ReferenceCitation, SupraCitation
+from mellea_lrc.parsing.reporters import short_reporter_readings
 
 ROOTS = (
     "Smith v. Jones, 347 U.S. 483 (1954). "
@@ -33,9 +32,7 @@ ROOTS = (
 
 
 def _read_short_names(document: Document) -> Document:
-    return resolve_short_reporter_case_names(
-        predict_short_reporter_fields(resolve_short_reporter_colocations(document))
-    )
+    return resolve_short_reporter_case_names(resolve_short_reporter_colocations(document))
 
 
 def _roots(source: str) -> Document:

@@ -31,7 +31,7 @@ CASE_NAME_SUBSTAGE = "grow_roots.read_root_fields.resolve_case_names"
 COURT_SUBSTAGE = "grow_roots.read_root_fields.resolve_courts"
 DATE_SUBSTAGE = "grow_roots.read_root_fields.resolve_dates"
 PIN_SUBSTAGE = "grow_roots.read_root_fields.resolve_pin_cites"
-PREDICT_FIELDS_SUBSTAGE = "grow_roots.read_root_fields.predict_fields"
+PREDICT_FIELDS_ML_SUBSTAGE = "grow_roots.read_root_fields.predict_fields_ml"
 ROOT_SUBSTAGE = "grow_roots.form_root_groups.form_roots"
 ROOT_REVIEW_SUBSTAGE = "grow_roots.form_root_groups.reassign_docket_roots_llm"
 ROOT_FIELDS = ("locator", "case_name", "court", "date", "pin_cite", "docket_entry")
@@ -502,10 +502,10 @@ def score_pin_cites(document: Document) -> SubstageScore:
     )
 
 
-def score_root_field_predictions(document: Document) -> SubstageScore:
-    """Retain the prediction checkpoint without scoring unconsumed field values."""
-    document.get_substage(PREDICT_FIELDS_SUBSTAGE)
-    return SubstageScore(PREDICT_FIELDS_SUBSTAGE, {})
+def score_root_field_predictions_ml(document: Document) -> SubstageScore:
+    """Retain the inference checkpoint without scoring unconsumed field values."""
+    document.get_substage(PREDICT_FIELDS_ML_SUBSTAGE)
+    return SubstageScore(PREDICT_FIELDS_ML_SUBSTAGE, {})
 
 
 def score_colocations(document: Document) -> SubstageScore:
@@ -599,7 +599,7 @@ GROW_ROOTS_SUBSTAGES: tuple[tuple[str, Callable[[Document], SubstageScore]], ...
     (HUNT_SUBSTAGE, score_docket_locator_site_hunting),
     (ENTRY_SUBSTAGE, score_docket_entries),
     (COLOCATION_SUBSTAGE, score_colocations),
-    (PREDICT_FIELDS_SUBSTAGE, score_root_field_predictions),
+    (PREDICT_FIELDS_ML_SUBSTAGE, score_root_field_predictions_ml),
     (CASE_NAME_SUBSTAGE, score_case_names),
     (COURT_SUBSTAGE, score_courts),
     (DATE_SUBSTAGE, score_dates),
@@ -678,7 +678,8 @@ def score_grow_roots(document: Document) -> WorkflowScore:
     missing = [
         substage
         for substage, _ in GROW_ROOTS_SUBSTAGES
-        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE} and substage not in final.substage_runs
+        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE, PREDICT_FIELDS_ML_SUBSTAGE}
+        and substage not in final.substage_runs
     ]
     if missing:
         raise ValueError(f"Incomplete grow_roots workflow; missing substages: {', '.join(missing)}")
@@ -832,10 +833,10 @@ def render_pin_cites(score: SubstageScore) -> str:
     )
 
 
-def render_root_field_predictions(score: SubstageScore) -> str:
-    _require_substage(score, PREDICT_FIELDS_SUBSTAGE)
+def render_root_field_predictions_ml(score: SubstageScore) -> str:
+    _require_substage(score, PREDICT_FIELDS_ML_SUBSTAGE)
     return (
-        f"{substage_heading(PREDICT_FIELDS_SUBSTAGE)}\n\n"
+        f"{substage_heading(PREDICT_FIELDS_ML_SUBSTAGE)}\n\n"
         "Raw four-field predictions saved; field decisions scored at consuming substages."
     )
 
@@ -872,7 +873,7 @@ GROW_ROOTS_RENDERERS: dict[str, Callable[[SubstageScore], str]] = {
     HUNT_SUBSTAGE: render_docket_locator_site_hunting,
     ENTRY_SUBSTAGE: render_docket_entries,
     COLOCATION_SUBSTAGE: render_colocations,
-    PREDICT_FIELDS_SUBSTAGE: render_root_field_predictions,
+    PREDICT_FIELDS_ML_SUBSTAGE: render_root_field_predictions_ml,
     CASE_NAME_SUBSTAGE: render_case_names,
     COURT_SUBSTAGE: render_courts,
     DATE_SUBSTAGE: render_dates,
@@ -913,7 +914,8 @@ def render_grow_roots(
     expected = tuple(
         substage
         for substage, _ in GROW_ROOTS_SUBSTAGES
-        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE} or substage in stage_names
+        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE, PREDICT_FIELDS_ML_SUBSTAGE}
+        or substage in stage_names
     )
     if stage_names != expected:
         raise ValueError("Grow-roots substage scores are missing or out of order")

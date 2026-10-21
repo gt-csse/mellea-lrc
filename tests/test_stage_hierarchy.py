@@ -70,9 +70,9 @@ def test_catalog_is_immutable_and_covers_four_workflows_fifteen_stages() -> None
     stage = get_stage_definition(DISCOVERY)
     assert stage.required_substages == (REPORTERS, DOCKETS)
     assert tuple(substage.name for substage in stage.substages) == (REPORTERS, DOCKETS, HUNTING)
-    assert not get_substage_definition("grow_roots.read_root_fields.predict_fields").optional
-    assert not get_substage_definition("grow_leaves.grow_short_reporter_leaves.predict_fields").optional
     assert get_substage_definition(HUNTING).optional
+    assert get_substage_definition("grow_roots.read_root_fields.predict_fields_ml").optional
+    assert get_substage_definition("grow_leaves.grow_short_reporter_leaves.predict_fields_ml").optional
     assert stage_for_substage(HUNTING) == DISCOVERY
     assert stage_for_substage("development_checkpoint") is None
     assert get_workflow("validate_roots_citation_identity").required_stages == (

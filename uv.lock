@@ -1377,9 +1377,17 @@ name = "mellea-lrc"
 version = "0.1.9"
 source = { editable = "." }
 dependencies = [
+    { name = "courts-db" },
     { name = "eyecite" },
+    { name = "httpx" },
+    { name = "mellea" },
+    { name = "openai" },
     { name = "pyahocorasick" },
     { name = "pydantic" },
+    { name = "pypdf" },
+    { name = "python-dotenv" },
+    { name = "rapidfuzz" },
+    { name = "reporters-db" },
 ]
 
 [package.optional-dependencies]
@@ -1389,22 +1397,11 @@ ml-cite = [
     { name = "torch" },
     { name = "transformers" },
 ]
-pipeline = [
-    { name = "courts-db" },
-    { name = "httpx" },
-    { name = "mellea" },
-    { name = "openai" },
-    { name = "pypdf" },
-    { name = "python-dotenv" },
-    { name = "rapidfuzz" },
-    { name = "reporters-db" },
-]
 
 [package.dev-dependencies]
 dev = [
     { name = "autogitsemver" },
     { name = "docling" },
-    { name = "mellea-lrc", extra = ["pipeline"] },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1412,43 +1409,38 @@ dev = [
 ]
 preprocessing = [
     { name = "docling" },
-    { name = "mellea-lrc", extra = ["pipeline"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "courts-db", marker = "extra == 'pipeline'", specifier = ">=0.10.27,<0.11" },
+    { name = "courts-db", specifier = ">=0.10.27,<0.11" },
     { name = "eyecite", specifier = ">=2.7,<3" },
-    { name = "httpx", marker = "extra == 'pipeline'", specifier = ">=0.28,<1" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "huggingface-hub", marker = "extra == 'ml-cite'", specifier = ">=0.30,<1" },
-    { name = "mellea", marker = "extra == 'pipeline'", specifier = ">=0.7,<0.8" },
-    { name = "openai", marker = "extra == 'pipeline'", specifier = ">=3,<4" },
+    { name = "mellea", specifier = ">=0.7,<0.8" },
+    { name = "openai", specifier = ">=3,<4" },
     { name = "pyahocorasick", specifier = ">=2.3,<3" },
     { name = "pydantic", specifier = ">=2,<3" },
-    { name = "pypdf", marker = "extra == 'pipeline'", specifier = ">=6,<7" },
-    { name = "python-dotenv", marker = "extra == 'pipeline'", specifier = ">=1,<2" },
-    { name = "rapidfuzz", marker = "extra == 'pipeline'", specifier = ">=3.14.5,<4" },
-    { name = "reporters-db", marker = "extra == 'pipeline'", specifier = ">=3.2,<4" },
+    { name = "pypdf", specifier = ">=6,<7" },
+    { name = "python-dotenv", specifier = ">=1,<2" },
+    { name = "rapidfuzz", specifier = ">=3.14.5,<4" },
+    { name = "reporters-db", specifier = ">=3.2,<4" },
     { name = "safetensors", marker = "extra == 'ml-cite'", specifier = ">=0.5,<1" },
     { name = "torch", marker = "extra == 'ml-cite'", specifier = ">=2.6,<3" },
     { name = "transformers", marker = "extra == 'ml-cite'", specifier = ">=4.51.3,<5" },
 ]
-provides-extras = ["pipeline", "ml-cite"]
+provides-extras = ["ml-cite"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "autogitsemver", specifier = ">=0.9.13" },
     { name = "docling", specifier = ">=2.0" },
-    { name = "mellea-lrc", extras = ["pipeline"] },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = "~=0.16.0" },
 ]
-preprocessing = [
-    { name = "docling", specifier = ">=2.0" },
-    { name = "mellea-lrc", extras = ["pipeline"] },
-]
+preprocessing = [{ name = "docling", specifier = ">=2.0" }]
 
 [[package]]
 name = "mistletoe"

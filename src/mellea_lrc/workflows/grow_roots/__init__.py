@@ -29,16 +29,10 @@ async def grow_roots(
     omitted = (() if hunt_dockets else ("grow_roots.discover_root_locators.hunt_docket_locators",)) + (
         () if review_docket_roots else ("grow_roots.form_root_groups.reassign_docket_roots_llm",)
     )
+    if not fields.ml_enabled:
+        omitted += ("grow_roots.read_root_fields.predict_fields_ml",)
     validate_workflow_checkpoint(document, "grow_roots", omitted_substages=omitted)
     config = rules or stable()
-    for citation in document.full_locators:
-        if citation.rule_field_reading is not None:
-            saved = citation.rule_field_reading
-            if (saved.case_name_window, saved.post_locator_window) != (
-                config.case_name_window,
-                config.post_locator_window,
-            ):
-                raise ValueError("Rule prediction windows changed; rewind before predicting fields")
     if fields.ml_enabled:
         for citation in document.full_locators:
             if citation.ml_field_reading is not None:

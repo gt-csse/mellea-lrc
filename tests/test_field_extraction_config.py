@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from mellea_lrc.config.field_extraction import FieldExtractionConfig, FieldSource
-from mellea_lrc.field_extraction import ml_cite
+from mellea_lrc.extraction.field_readers import ml_cite
 
 _PREFIX = "MELLEA_LRC_FIELD_EXTRACTION_"
 _RULE = {
@@ -18,10 +18,10 @@ _RULE = {
     "COURT": "RULE",
     "DATE": "RULE",
     "PIN_CITE": "RULE",
-    "CONTEXT_BEFORE": "260",
-    "CONTEXT_AFTER": "260",
 }
 _CHECKPOINT = {
+    "CONTEXT_BEFORE": "260",
+    "CONTEXT_AFTER": "260",
     "MODEL_ID": "gt-csse/ML-cite",
     "REVISION": "881db5474fafe756474034ef6bf9c86a39e9630c",
     "VARIANT": "ML-cite-Bert-augmented",
@@ -41,8 +41,6 @@ def _config(**changes):
 def test_all_rule_sources_need_no_checkpoint_and_do_not_load_optional_runtime(monkeypatch):
     config = _config()
     assert config == FieldExtractionConfig(
-        context_before=260,
-        context_after=260,
         ml_enabled=False,
         case_name="RULE",
         court="RULE",
@@ -53,7 +51,7 @@ def test_all_rule_sources_need_no_checkpoint_and_do_not_load_optional_runtime(mo
     config.validate_runtime()
     code = (
         "from mellea_lrc.config.field_extraction import FieldExtractionConfig; import sys; "
-        "c = FieldExtractionConfig(context_before=260, context_after=260, ml_enabled=False, case_name='RULE', court='RULE', "
+        "c = FieldExtractionConfig(ml_enabled=False, case_name='RULE', court='RULE', "
         "date='RULE', pin_cite='RULE'); c.validate_runtime(); "
         "assert 'torch' not in sys.modules; assert 'transformers' not in sys.modules"
     )
@@ -192,16 +190,12 @@ def test_removed_backend_is_not_a_supported_config_alias():
         )
 
 
-@pytest.mark.parametrize("key", ["CONTEXT_BEFORE", "CONTEXT_AFTER"])
-def test_shared_context_windows_are_required_even_when_ml_is_disabled(key):
-    values = _env({name: value for name, value in _RULE.items() if name != key})
-    with pytest.raises(RuntimeError, match=_PREFIX + key):
-        FieldExtractionConfig.from_env(environ=values)
+def test_rule_sources_do_not_require_ml_context_windows():
+    config = _config()
+    assert config.context_before is config.context_after is None
 
 
-def test_ml_reader_configuration_has_no_independent_context_window():
+def test_ml_reader_configuration_uses_checkpoint_specific_windows():
     config = _config(**(_CHECKPOINT | {"ML_ENABLED": "true"}))
     reader_config = config.ml_reader_config()
-    assert not hasattr(reader_config, "context_before")
-    assert not hasattr(reader_config, "context_after")
-    assert config.context_before == config.context_after == 260
+    assert reader_config.context_before == reader_config.context_after == 260

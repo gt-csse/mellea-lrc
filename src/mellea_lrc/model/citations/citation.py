@@ -7,13 +7,12 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from mellea_lrc.field_extraction.models import FieldPrediction, MLFieldPrediction
 from mellea_lrc.model.citations.fields.base import CitationField, NotStatedField, current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameField, CaseNameKind
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteField, PinCiteValue
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
 from mellea_lrc.model.citations.leaf_field_correction import LeafFieldCorrectionReview
-from mellea_lrc.model.citations.ml_field_reading import MLFieldReading
+from mellea_lrc.model.citations.ml_field_reading import MLFieldPrediction, MLFieldReading
 from mellea_lrc.model.citations.reporter_page_resolution import (
     OpinionPageReference,
     ReporterCitationOpinionReview,
@@ -26,7 +25,6 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     ReporterOpinionEvidence,
     ReporterPinpointJudgment,
 )
-from mellea_lrc.model.citations.rule_field_reading import RuleFieldReading
 from mellea_lrc.model.citations.tags import CitationTag, CitationTagKind
 from mellea_lrc.parsing.span import Span
 
@@ -55,24 +53,7 @@ class Citation(BaseModel):
     reporter_support_reviews: tuple[ReporterCitationSupportReview, ...] = ()
     reporter_pinpoint_judgments: tuple[ReporterPinpointJudgment, ...] = ()
     leaf_field_correction_reviews: tuple[LeafFieldCorrectionReview, ...] = ()
-    rule_field_reading: RuleFieldReading | None = None
     ml_field_reading: MLFieldReading | None = None
-
-    def with_rule_field_reading(self, result: RuleFieldReading) -> Self:
-        """Save the raw rule spans independently of normalized field readings."""
-        if result.node_id != self._decision_node_id():
-            raise ValueError("Rule field reading must point to the current decision node")
-        if self.rule_field_reading is not None:
-            raise ValueError("Rule field reading is already recorded")
-        return self._with_log(rule_field_reading=result)
-
-    def get_rule_field_prediction(self) -> FieldPrediction:
-        """Read saved rule spans; missing inference is a configuration error."""
-        if self.rule_field_reading is None:
-            raise ValueError(
-                "Rule field prediction is unavailable; run rule prediction before reading rule fields"
-            )
-        return self.rule_field_reading.prediction
 
     def with_ml_field_reading(self, result: MLFieldReading) -> Self:
         """Save the raw joint inference independently of normalized field readings."""
@@ -278,8 +259,6 @@ class Citation(BaseModel):
             for entry in entries:
                 if isinstance(entry, CitationField):
                     entry.validate_source(source)
-        if self.rule_field_reading is not None:
-            self.rule_field_reading.prediction.validate_source(source, self.site_span)
         if self.ml_field_reading is not None:
             self.ml_field_reading.prediction.validate_source(source, self.site_span)
         for proposition in self.reporter_propositions:

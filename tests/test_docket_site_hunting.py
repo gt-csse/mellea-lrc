@@ -17,11 +17,9 @@ from mellea_lrc.extraction.hunt_docket_locators import suspected_dockets
 from mellea_lrc.extraction.hunt_docket_locators.review import DocketSiteDecision, IvrDocketReviewer
 from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, LlmOutputMode
 from mellea_lrc.model import (
-    CitationTagKind,
     Document,
     FullDocketCitation,
     FullReporterCitation,
-    Span,
     TableOfAuthoritiesComponent,
 )
 
@@ -269,7 +267,6 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
         SUBSTAGE,
         "grow_roots.read_root_fields.resolve_docket_entries",
         "grow_roots.read_root_fields.resolve_colocations",
-        "grow_roots.read_root_fields.predict_fields",
         "grow_roots.read_root_fields.resolve_case_names",
         "grow_roots.read_root_fields.resolve_courts",
         "grow_roots.read_root_fields.resolve_dates",

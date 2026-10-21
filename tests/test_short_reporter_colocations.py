@@ -11,14 +11,13 @@ from mellea_lrc.api import (
     find_id_citations,
     find_short_reporter_citations,
     grow_roots,
-    predict_short_reporter_fields,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
 from mellea_lrc.config.extraction import ExtractionRules
+from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE as CREATION_SUBSTAGE
 from mellea_lrc.extraction.resolve_short_reporter_case_names import SUBSTAGE as NAME_SUBSTAGE
 from mellea_lrc.extraction.resolve_short_reporter_colocations import SUBSTAGE as COLOCATION_SUBSTAGE
-from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE as CREATION_SUBSTAGE
 from mellea_lrc.model.citations import latest
 
 ROOTS = "Smith v. Jones, 347 U.S. 483, 74 S. Ct. 686 (1954). "
@@ -30,9 +29,7 @@ def created(source: str) -> Document:
 
 
 def names(source: str) -> Document:
-    return resolve_short_reporter_case_names(
-        predict_short_reporter_fields(resolve_short_reporter_colocations(created(source)))
-    )
+    return resolve_short_reporter_case_names(resolve_short_reporter_colocations(created(source)))
 
 
 def test_short_creation_reads_locator_and_pins_before_grouping_or_name_reading() -> None:
@@ -203,8 +200,7 @@ def test_short_name_stage_and_group_stage_are_independently_recoverable_after_at
     roots = asyncio.run(grow_roots(Document.from_source(ROOTS + PARALLEL)))
     before = find_short_reporter_citations(roots)
     grouped = resolve_short_reporter_colocations(before)
-    predicted = predict_short_reporter_fields(grouped)
-    named = resolve_short_reporter_case_names(predicted)
+    named = resolve_short_reporter_case_names(grouped)
     attributed = asyncio.run(attribute_short_reporter_citations(named, review=False))
     restored = Document.model_validate_json(attributed.model_dump_json())
 
@@ -257,8 +253,7 @@ def test_short_parsing_stages_raise_for_wrong_order_and_duplicate_runs() -> None
     grouped = resolve_short_reporter_colocations(before)
     with pytest.raises(ValueError, match="already completed"):
         resolve_short_reporter_colocations(grouped)
-    predicted = predict_short_reporter_fields(grouped)
-    named = resolve_short_reporter_case_names(predicted)
+    named = resolve_short_reporter_case_names(grouped)
     with pytest.raises(ValueError, match="already completed"):
         resolve_short_reporter_case_names(named)
 

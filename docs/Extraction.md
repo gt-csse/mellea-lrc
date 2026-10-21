@@ -78,80 +78,30 @@ assert restored.get_substage("grow_roots.discover_root_locators.find_docket_loca
 
 Exact reporter-root lookup is the first independent validation substage after root formation; see [Validation](Validation.md).
 
-## Shared field prediction and field sources
+## ML prediction and field sources
 
-Span prediction and field reading are separate operations. The same field substages
+ML inference and field reading are separate operations. The same field substages
 run in every configuration:
 
 ```text
 locator discovery -> docket entries and colocation
-                  -> predict_fields
+                  -> optional predict_fields_ml
                   -> resolve_case_names -> resolve_courts -> resolve_dates
                   -> resolve_pin_cites -> root formation
 ```
 
-The required prediction substage constructs one shared locator context and
-computes the four rule spans once per locator. When ML is enabled, the same
-context also receives one four-field model inference. It saves the results in `citation.rule_field_reading`
-and `citation.ml_field_reading`; the latter is `None` when ML is disabled.
-Neither result changes or normalizes a citation field. Both records point to
-their producing citation node. Model results retain the revision and actual
-context span, and rule results retain their window settings.
+The optional prediction substage runs one four-field inference per locator and
+stores its raw result in `citation.ml_field_reading`. It does not update or
+normalize case names, courts, dates, or pinpoints. The result includes the model
+revision, source context, all four predicted spans, and producing node. The
+field is `None` before inference. `citation.get_ml_field_prediction()` raises if
+no prediction has been saved.
 
-The following field substages only select a saved span and write its typed,
-normalized reading. They do not rerun either extractor. Missing required raw
-predictions raise. Rewinding before `predict_fields` removes its raw results;
-rewinding to it preserves them for another field-source policy.
-
-### Standalone rule and ML readers
-
-The base package exposes source-only readers for use by training and evaluation
-repositories. It does not install the LLM, PDF, or model runtimes:
-
-```bash
-pip install 'mellea-lrc @ git+https://github.com/gt-csse/mellea-lrc.git@feat/citation-checking'
-```
-
-Pin an immutable Git commit for a published comparison. Both readers take one
-`LocatorContext` and return the same four optional absolute source spans:
-
-```python
-from mellea_lrc.field_extraction import LocatorContext, RuleFieldReader, Span
-
-text = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009)."
-start = text.index("556 U.S. 662")
-end = start + len("556 U.S. 662")
-context = LocatorContext(
-    text=text,
-    source_span=Span(0, len(text)),
-    locator=Span(start, end),
-    kind="reporter",
-    name_before=Span(0, start),
-    court_date_after=Span(end, len(text)),
-    pin_region=Span(end, len(text)),
-)
-prediction = RuleFieldReader().predict(context)
-# prediction.case_name / court / date / pin_cite: Span | None
-quote = text[prediction.case_name.start : prediction.case_name.end]
-```
-
-`MLCiteReader(MLReaderConfig(...)).predict(context)` consumes the same object and
-returns the same span fields, adding model identity and the supplied context's
-source span. Both readers also expose `predict_many(contexts)`. The `ml-cite`
-extra installs the model runtime; the `pipeline` extra installs the full document
-workflows. Neither reader constructs context, discovers neighboring locators,
-reads annotations, mutates a Document, or normalizes fields. The model reader
-does not shrink the supplied excerpt. An input exceeding its token capacity
-raises rather than silently becoming a different input.
-
-Inside the existing prediction substage, context construction uses the already
-found locators, colocation boundaries, and available source names. Its exact text
-excerpt, absolute source and locator spans, and reading boundaries form the only
-reader input. The same object goes to the rule reader and, when enabled, the ML
-reader. Context construction adds no stage, public Document API, or durable
-citation field. External comparisons must prepare one context per target and pass
-it unchanged to both readers. Empty field results mean no quoted span;
-reporter-based court inference remains a later document operation.
+Rule-based reading stays in each consuming field substage. It uses the
+Document's colocation groups, neighboring-locator boundaries, and known-name
+aliases. No parallel raw rule cache or standalone rule-reader package is
+introduced. These document relationships are unnecessary for the ML adapter,
+which makes one joint span prediction from source text and the target locator.
 
 Configure the switch and every consuming field explicitly in `.env`. For
 example, this policy uses model spans for names, courts, and dates while keeping
@@ -165,12 +115,9 @@ MELLEA_LRC_FIELD_EXTRACTION_DATE=ML
 MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE
 ```
 
-`.env.example` supplies shared context limits in every configuration, including
-RULE-only extraction. It also supplies the model, immutable revision, device, and
-batch size required when ML is enabled. There are no implicit switch or field-source
-defaults in Python. Each field source must be exactly `RULE` or `ML`; lowercase
-values and automatic fallback modes are rejected. `ML_ENABLED=false` requires
-all field sources to be `RULE`.
+`.env.example` also supplies the model, immutable revision, device, source
+context limits, and batch size. There are no implicit switch or field-source
+defaults in Python. `ML_ENABLED=false` requires all field sources to be `RULE`.
 Enabled inference can also be used with all rule sources to inspect predictions
 without applying them. Install model dependencies with `uv sync --extra ml-cite`;
 access to the configured model repository is required for its initial download.
@@ -179,25 +126,25 @@ access to the configured model repository is required for its initial download.
 `validate_runtime()` checks an enabled checkpoint's dependencies, model access,
 weights, and device by loading it without inference. The CLI performs both
 checks before preprocessing or creating an output artifact. Workflow entrypoints
-and evaluation runners check before work too. Each field substage rejects
+and evaluation runners check before work too. Each consuming substage rejects
 an ML source without its prediction checkpoint or citation prediction; it never
 silently falls back to a rule span.
 
-Each consuming substage chooses its configured saved prediction, then uses the
-existing typed normalizer. An absent model court still permits the existing unique
+Each consuming substage chooses its configured source, then uses the existing
+typed normalizer. An absent model court still permits the existing unique
 reporter-based court inference. Locator detection, docket hunting, docket-entry
 reading, colocation, attribution, and normalizers are unchanged.
 
-Short reporter creation retains its locator-derived pinpoint. Its required
-`grow_leaves.grow_short_reporter_leaves.predict_fields` checkpoint saves rule and optional ML
-four-field predictions, but `resolve_case_names` alone consumes a selected model
+Short reporter creation retains its locator-derived pinpoint. Its optional
+`grow_leaves.grow_short_reporter_leaves.predict_fields_ml` checkpoint saves all
+four raw predictions, but `resolve_case_names` alone consumes a selected model
 field. Model court, date, and pinpoint predictions are not applied to short
 reporters. Reference, Id., and supra readers remain unchanged.
 
-The shared service in `field_extraction/` batches the prepared contexts and reuses
-the loaded model. Context depends on source text and the supplied locator, never
-annotation targets. An unrepresentable locator, malformed span, or context beyond
-the model token capacity raises.
+The ML adapter in `extraction/field_readers/ml_cite/` batches inputs and reuses the
+loaded model. Context depends on source text and the supplied locator, never
+annotation targets. Overlong inputs shrink surrounding context without changing
+the locator. An unrepresentable locator or malformed source span raises.
 
 Every field update points to its normal field-reading node. Native serialization
 preserves the raw prediction independently; rewinding to the prediction
@@ -212,6 +159,12 @@ configuration changes within a resumed run.
 Pass the same `FieldExtractionConfig` explicitly as `field_extraction=` to
 `grow_roots`, `read_root_fields`, `grow_leaves`, or
 `grow_short_reporter_leaves` for controlled compositions.
+
+Compare rule and ML extraction here with the existing `grow_roots` and
+`grow_leaves` workflow reports on the same primary corpus. Each policy retains
+the same locator discovery, grouping, normalizers, and evaluation targets.
+This is a comparison of the actual pipeline configurations; the independent
+ML-cite training project does not need a second version of the rule pipeline.
 
 ## Grow leaves
 
@@ -235,7 +188,7 @@ The five leaf stages compose these ordered substages. IDs append the substage na
 
 | Stage | API | Substages, in order |
 | --- | --- | --- |
-| `grow_short_reporter_leaves` | `await grow_short_reporter_leaves(document)` | `find_short_reporter_citations`, `resolve_colocations`, `predict_fields`, `resolve_case_names`, `attribute_citations` |
+| `grow_short_reporter_leaves` | `await grow_short_reporter_leaves(document)` | `find_short_reporter_citations`, `resolve_colocations`, optional `predict_fields_ml`, `resolve_case_names`, `attribute_citations` |
 | `grow_reference_leaves` | `await grow_reference_leaves(document)` | `find_reference_citations`, `attribute_citations` |
 | `grow_id_leaves` | `await grow_id_leaves(document)` | `find_id_citations`, `attribute_citations` |
 | `grow_supra_leaves` | `await grow_supra_leaves(document)` | `find_supra_citations`, `resolve_case_names`, `resolve_pin_cites`, `attribute_citations_rule`, optional `review_attributions_llm` |

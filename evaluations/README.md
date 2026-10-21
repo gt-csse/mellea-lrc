@@ -146,37 +146,39 @@ than a hard cap.
 
 `.env` explicitly sets `MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED` to `true` or
 `false`, and each `MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME`, `_COURT`, `_DATE`,
-and `_PIN_CITE` source to exactly `RULE` or `ML`. No field source is defaulted
-in code; lowercase values and automatic fallback modes are rejected.
+and `_PIN_CITE` source to `RULE` or `ML`. No field source is defaulted in code.
 Selecting any ML field while inference is disabled raises before document work.
-Shared context-before and context-after settings are required in every mode.
-When ML is enabled, checkpoint, revision, variant, device, and batch size are also
-validated before a run directory is created.
+When enabled, the configured checkpoint, revision, variant, device, context,
+and batch size are validated before a run directory is created.
 
-The required `grow_roots.read_root_fields.predict_fields` substage saves the
-four rule spans and, when enabled, one four-field ML prediction per full
-citation. It constructs one locator context internally and passes the exact same
-object to both readers, whose sole input is `LocatorContext`. Neither reader
-rediscovers locators or chooses a different excerpt. It does not change any field reading. The same `resolve_case_names`,
-`resolve_courts`, `resolve_dates`, and `resolve_pin_cites` substages then select
-their configured saved spans and normalize them. They never rerun extraction.
-Reporter-based court inference remains in the court-consuming substage.
+The optional `grow_roots.read_root_fields.predict_fields_ml` substage saves one
+raw four-field prediction per full citation without changing any field reading.
+The same `resolve_case_names`, `resolve_courts`, `resolve_dates`, and
+`resolve_pin_cites` substages then consume either that saved prediction or their
+rule reader, according to the independent field settings. Typed normalization
+and reporter-based court inference remain in those consuming substages.
 
-Short reporters have the same required
-`grow_leaves.grow_short_reporter_leaves.predict_fields` checkpoint before the
-case-name reader. Their pinpoints remain locator-derived; raw ML court, date,
-and pinpoint predictions are retained but not applied.
+Short reporters follow the same pattern with an optional
+`grow_leaves.grow_short_reporter_leaves.predict_fields_ml` before the existing
+case-name reader. Their pinpoints remain locator-derived; raw model court,
+date, and pinpoint predictions are retained but not applied.
 
-Prediction checkpoints do not issue field decisions and have no precision table.
+Inference checkpoints do not issue field decisions and have no precision table.
 Every normal field substage keeps its existing span and normalization measures,
 including absence and inferred court. Workflow summaries use the same metrics
 and denominators regardless of the configured field sources. Scoring reads the
 saved Document and does not consult the current `.env`.
 
+Compare the actual rule and ML configurations in this repository using these
+same workflow reports on the same primary corpus. Rule field readers retain
+Document-level colocation and neighboring-citation context; ML inference keeps
+its own locator-centered model input. Neither comparison requires exporting a
+standalone rule-reader package to the ML-cite training repository.
+
 Both runners record the complete field configuration in `run.json` and reject
-configuration changes on resume. Recover the prediction checkpoint to compare
-field sources without repeating extraction, or root colocation to repeat
-span prediction. Existing run directories remain unchanged; changed annotation hashes
+configuration changes on resume. Recover the inference checkpoint to compare
+field readers without repeating inference, or root colocation to repeat model
+inference. Existing run directories remain unchanged; changed annotation hashes
 are never silently accepted as the original run's gold.
 
 ## Reporter-root opinion retrieval
