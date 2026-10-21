@@ -17,6 +17,7 @@ from mellea_lrc.api import (
     find_supra_citations,
     grow_leaves,
     grow_roots,
+    predict_short_reporter_fields,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
@@ -32,7 +33,9 @@ ROOTS = (
 
 
 def _read_short_names(document: Document) -> Document:
-    return resolve_short_reporter_case_names(resolve_short_reporter_colocations(document))
+    return resolve_short_reporter_case_names(
+        predict_short_reporter_fields(resolve_short_reporter_colocations(document))
+    )
 
 
 def _roots(source: str) -> Document:

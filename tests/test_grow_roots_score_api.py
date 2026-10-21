@@ -37,7 +37,7 @@ def test_explicitly_cleared_reading_scores_only_as_not_stated(field):
 @pytest.fixture(autouse=True)
 def explicit_rule_fields(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
     )
     monkeypatch.chdir(tmp_path)
 
@@ -237,7 +237,7 @@ def annotated_document(tmp_path: Path) -> Document:
 
 
 @pytest.mark.parametrize(
-    "name", (*STAGE_SCORERS.values(), "score_root_field_predictions_ml", "score_grow_roots")
+    "name", (*STAGE_SCORERS.values(), "score_root_field_predictions", "score_grow_roots")
 )
 def test_public_scorer_has_one_document_parameter(name: str) -> None:
     scorer = getattr(evaluation, name)
@@ -289,27 +289,45 @@ def test_workflow_scorer_accepts_saved_annotated_document(annotated_document: Do
 
 def _root_document_with_predictions(document: Document) -> Document:
     """Raw inference precedes the same independent field readers in every mode."""
+    from mellea_lrc.config.field_extraction import FieldExtractionConfig
     from mellea_lrc.extraction.form_roots import form_roots
+    from mellea_lrc.extraction.predict_root_fields import predict_root_fields
     from mellea_lrc.extraction.resolve_case_names import resolve_case_names
     from mellea_lrc.extraction.resolve_courts import resolve_courts
     from mellea_lrc.extraction.resolve_dates import resolve_dates
     from mellea_lrc.extraction.resolve_pin_cites import resolve_pin_cites
     from mellea_lrc.field_extraction.models import MLFieldPrediction
-    from mellea_lrc.model.citations.ml_field_reading import MLFieldReading
 
-    checkpoint = document.get_substage(evaluation.COLOCATION_SUBSTAGE)
-    for citation in checkpoint.full_locators:
-        updated = citation.record(evaluation.PREDICT_FIELDS_ML_SUBSTAGE)
-        prediction = MLFieldPrediction(
-            model_id="fixture/bert",
-            revision="a" * 40,
-            variant="augmented",
-            context_span=Span(0, len(document.text)),
-        )
-        checkpoint = checkpoint.replace_citation(
-            updated.with_ml_field_reading(MLFieldReading(node_id=updated.nodes[-1].id, prediction=prediction))
-        )
-    checkpoint = checkpoint.complete_substage(evaluation.PREDICT_FIELDS_ML_SUBSTAGE)
+    config = FieldExtractionConfig(
+        ml_enabled=True,
+        case_name="RULE",
+        court="RULE",
+        date="RULE",
+        pin_cite="RULE",
+        model_id="fixture/bert",
+        revision="a" * 40,
+        variant="augmented",
+        device="cpu",
+        context_before=260,
+        context_after=260,
+        batch_size=2,
+    )
+
+    class Reader:
+        def predict_many(self, source, locators, *, contexts):
+            return tuple(
+                MLFieldPrediction(
+                    model_id=config.model_id,
+                    revision=config.revision,
+                    variant=config.variant,
+                    context_span=Span(0, len(source)),
+                )
+                for _ in locators
+            )
+
+    checkpoint = predict_root_fields(
+        document.get_substage(evaluation.COLOCATION_SUBSTAGE), config, ml_reader=Reader()
+    )
     for reader in (resolve_case_names, resolve_courts, resolve_dates, resolve_pin_cites):
         checkpoint = reader(checkpoint)
     checkpoint = checkpoint.complete_stage("grow_roots.read_root_fields")
@@ -320,16 +338,16 @@ def test_ml_prediction_checkpoint_has_no_field_decisions_or_precision(
     annotated_document: Document,
 ) -> None:
     document = _root_document_with_predictions(annotated_document)
-    checkpoint = document.get_substage(evaluation.PREDICT_FIELDS_ML_SUBSTAGE)
+    checkpoint = document.get_substage(evaluation.PREDICT_FIELDS_SUBSTAGE)
     assert all(c.ml_field_reading is not None for c in checkpoint.full_locators)
     assert all(
         not c.case_name and not c.court and not c.date and c.pin_cite is None
         for c in checkpoint.full_locators
     )
-    score = evaluation.score_root_field_predictions_ml(document)
+    score = evaluation.score_root_field_predictions(document)
     assert score.metrics == {}
     restored = Document.model_validate_json(document.model_dump_json())
-    assert evaluation.score_root_field_predictions_ml(restored) == score
+    assert evaluation.score_root_field_predictions(restored) == score
     workflow = evaluation.score_grow_roots(restored)
     assert workflow.root_fields == evaluation.score_grow_roots(annotated_document).root_fields
     for stage, scorer in (
@@ -342,7 +360,7 @@ def test_ml_prediction_checkpoint_has_no_field_decisions_or_precision(
         assert all(metric == Precision(2, 2) for metric in scorer(document).metrics.values())
     report = evaluation.render_grow_roots(workflow)
     assert "Raw four-field predictions saved; field decisions scored at consuming substages." in report
-    assert "predict_fields_ml" in report and "resolve_case_names" in report
+    assert "predict_fields" in report and "resolve_case_names" in report
 
 
 @pytest.mark.parametrize("gold_state", ["quoted", "not_stated", "unmatched", "missing"])

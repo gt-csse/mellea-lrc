@@ -14,10 +14,10 @@ _PREFIX = "MELLEA_LRC_FIELD_EXTRACTION_"
 _REVISION = "881db5474fafe756474034ef6bf9c86a39e9630c"
 _SETTINGS = {
     "ML_ENABLED": "true",
-    "CASE_NAME": "ml",
-    "COURT": "ml",
-    "DATE": "ml",
-    "PIN_CITE": "ml",
+    "CASE_NAME": "ML",
+    "COURT": "ML",
+    "DATE": "ML",
+    "PIN_CITE": "ML",
     "MODEL_ID": "gt-csse/ML-cite",
     "REVISION": _REVISION,
     "VARIANT": "ML-cite-Bert-augmented",
@@ -146,7 +146,7 @@ def test_anchor_over_token_limit_raises_and_never_runs_inference(checkpoint):
 
 @pytest.mark.parametrize("span", [Span(0, 0), Span(0, 30), Span(20, 21)])
 def test_invalid_anchor_is_not_silently_ignored(checkpoint, span):
-    with pytest.raises(ValueError, match="Locator must be"):
+    with pytest.raises(ValueError, match="Target locator"):
         ml_cite.get_ml_reader(_config().ml_reader_config()).predict_many("1 U.S. 2", (span,))
 
 
@@ -187,6 +187,41 @@ def test_empty_batch_does_not_run_inference_and_rule_config_rejects_ml_reader(ch
     with pytest.raises(ValueError, match="requires ML_ENABLED=true"):
         ml_cite.get_ml_reader(
             FieldExtractionConfig(
-                ml_enabled=False, case_name="rule", court="rule", date="rule", pin_cite="rule"
+                ml_enabled=False, case_name="RULE", court="RULE", date="RULE", pin_cite="RULE"
             ).ml_reader_config()
         )
+
+
+def test_ml_accepts_the_same_structural_context_without_rewriting_predictions(checkpoint):
+    from mellea_lrc.field_extraction import FieldContext
+
+    model, _ = checkpoint
+    source = "Alpha v. Beta, No. 12-cv-1234, 2006 WL 1984362 (E.D. La. 2006)."
+    start = source.index("2006 WL")
+    locator = Span(start, start + len("2006 WL 1984362"))
+    docket_start = source.index("No.")
+    context = FieldContext(
+        kind="reporter",
+        name_before=Span(0, docket_start),
+        court_date_after=Span(locator.end, len(source)),
+        pin_region=Span(locator.end, len(source)),
+    )
+    model.quotes = {"case_name": "Alpha v. Beta", "court": "E.D. La.", "date": "2006"}
+    reader = ml_cite.get_ml_reader(_config().ml_reader_config())
+    assert reader.predict(source, locator, context=context) == reader.predict(source, locator)
+    assert reader.predict_many(source, (locator,), contexts=(context,)) == (reader.predict(source, locator),)
+
+
+def test_ml_validates_structural_context_before_inference(checkpoint):
+    from mellea_lrc.field_extraction import FieldContext
+
+    model, _ = checkpoint
+    reader = ml_cite.get_ml_reader(_config().ml_reader_config())
+    with pytest.raises(ValueError, match="exactly one FieldContext"):
+        reader.predict_many("1 U.S. 2", (Span(0, 8),), contexts=())
+    context = FieldContext(
+        kind="short_reporter", name_before=Span(0, 0), court_date_after=Span(8, 8), pin_region=Span(0, 9)
+    )
+    with pytest.raises(ValueError, match="outside the source"):
+        reader.predict("1 U.S. 2", Span(0, 8), context=context)
+    assert not model.encoded and not model.batches

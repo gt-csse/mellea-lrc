@@ -23,6 +23,7 @@ from tests.test_grow_leaves_score_api import _leaf_document, _write_fixture
 PREFIX = (
     "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
     "grow_leaves.grow_short_reporter_leaves.resolve_colocations",
+    "grow_leaves.grow_short_reporter_leaves.predict_fields",
     "grow_leaves.grow_short_reporter_leaves.resolve_case_names",
     "grow_leaves.grow_short_reporter_leaves.attribute_citations",
     "grow_leaves.grow_reference_leaves.find_reference_citations",
@@ -37,7 +38,7 @@ TEXT = (
 @pytest.fixture(autouse=True)
 def synthetic_source_boundary(tmp_path, monkeypatch) -> None:
     (tmp_path / ".env").write_text(
-        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=RULE\nMELLEA_LRC_FIELD_EXTRACTION_COURT=RULE\nMELLEA_LRC_FIELD_EXTRACTION_DATE=RULE\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=RULE\n"
     )
     monkeypatch.chdir(tmp_path)
     # These fixtures test leaf-prefix recovery and scoring. Native source
@@ -138,13 +139,13 @@ def test_rule_only_stop_saves_creation_and_attribution_checkpoints_and_field_his
     assert unresolved.root_id[-1].value == WITHDRAWN_ROOT_ID
     assert unresolved.attributions[-1].result is AttributionResult.UNRESOLVED
     for short in document.short_reporters:
-        assert tuple(node.substage for node in short.nodes) == (PREFIX[0], *PREFIX[2:4])
+        assert tuple(node.substage for node in short.nodes) == (PREFIX[0], *PREFIX[2:5])
         assert short.reviews == ()
         created = document.get_substage(PREFIX[0]).short_reporters[document.short_reporters.index(short)]
         assert created.short_locator == short.short_locator
         assert created.case_name == ()
         assert (
-            document.get_substage(PREFIX[2]).short_reporters[document.short_reporters.index(short)].case_name
+            document.get_substage(PREFIX[3]).short_reporters[document.short_reporters.index(short)].case_name
             == short.case_name
         )
         assert created.pin_cite == short.pin_cite
@@ -155,11 +156,11 @@ def test_rule_only_stop_saves_creation_and_attribution_checkpoints_and_field_his
     assert reference.reference_name[-1].quote == "Smith"
     assert reference.case_name[-1].quote == "Smith"
     assert reference.pin_cite[-1].quote == "502"
-    assert tuple(node.substage for node in reference.nodes) == PREFIX[4:]
+    assert tuple(node.substage for node in reference.nodes) == PREFIX[5:]
     assert reference.root_id[-1].value == roots.roots[0].id
     assert reference.attributions[-1].result is AttributionResult.ATTACHED
     assert reference.reviews == ()
-    created_reference = document.get_substage(PREFIX[4]).short_citations[-1]
+    created_reference = document.get_substage(PREFIX[5]).short_citations[-1]
     assert created_reference.reference_name == reference.reference_name
     assert created_reference.case_name == reference.case_name
     assert created_reference.pin_cite == reference.pin_cite
@@ -322,10 +323,10 @@ def test_prefix_scoring_and_default_run_report_include_only_completed_leaf_stage
     assert tuple(substage.substage for substage in score.substages) == PREFIX
     assert score.leaf_spans["all_leaves"] == FieldScore(1, 1, 1)
     assert not score.leaf_attribution
-    assert score.substages[3] == evaluation.score_short_reporter_attribution(document)
-    assert score.substages[3].metrics["attribution"] == Precision(1, 1)
-    assert score.substages[5] == evaluation.score_reference_attribution(document)
-    assert score.substages[5].metrics["attribution"] == Precision()
+    assert score.substages[4] == evaluation.score_short_reporter_attribution(document)
+    assert score.substages[4].metrics["attribution"] == Precision(1, 1)
+    assert score.substages[6] == evaluation.score_reference_attribution(document)
+    assert score.substages[6].metrics["attribution"] == Precision()
     assert "IdCitation" not in score.leaf_spans
     assert "SupraCitation" not in score.leaf_spans
     report = evaluation.render_grow_leaves(score, set_name="fixture")
@@ -359,7 +360,6 @@ def test_completed_workflow_retains_full_span_and_attribution_scoring(tmp_path: 
         if substage
         not in {
             evaluation.SUPRA_REVIEW_SUBSTAGE,
-            "grow_leaves.grow_short_reporter_leaves.predict_fields_ml",
         }
     )
     assert tuple(substage.substage for substage in score.substages) == expected

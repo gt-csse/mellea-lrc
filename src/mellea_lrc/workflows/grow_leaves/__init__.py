@@ -5,7 +5,6 @@ from __future__ import annotations
 from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.extraction.correct_leaf_fields.reviewer import LeafFieldCorrectionReviewer
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewer
-from mellea_lrc.extraction.predict_short_reporter_fields_ml import SUBSTAGE as ML_PREDICTION
 from mellea_lrc.model.document import Document
 from mellea_lrc.workflows import Checkpoint, validate_workflow_checkpoint
 from mellea_lrc.workflows.grow_leaves.correct_leaf_readings import correct_leaf_readings
@@ -26,9 +25,7 @@ async def grow_leaves(
 ) -> Document:
     """Attach short forms to formed roots through five resumable groups."""
     fields = field_extraction or FieldExtractionConfig.from_env()
-    omitted = (() if fields.ml_enabled else (ML_PREDICTION,)) + (
-        () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
-    )
+    omitted = () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
     validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted)
     if fields.ml_enabled:
         for citation in document.short_reporters:

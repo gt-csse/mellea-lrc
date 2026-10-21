@@ -101,6 +101,13 @@ For the complete Python API or CLI outside this repository, select
 `mellea-lrc[pipeline]` instead. Add the `ml-cite` extra when ML field inference is
 needed; it is independent of the pipeline extra.
 
+Both readers expose `predict(source, locator_span, context=...)` and return four
+optional field spans. The required `predict_fields` substage saves rule results
+and optional ML results once. Subsequent field substages select their configured
+saved spans, normalize them, and retain the existing court-inference fallback.
+See [field extraction](docs/Extraction.md#shared-field-prediction-and-field-sources)
+for the standalone API and context requirements.
+
 ## Runtime configuration
 
 `.env` defines every named model profile, assigns a profile to each LLM-backed

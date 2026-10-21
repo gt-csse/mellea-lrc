@@ -1,11 +1,11 @@
-"""Source-only adjacent-locator grouping."""
+"""Source-only adjacent-locator grouping, shared by readers and document stages."""
 
 from __future__ import annotations
 
 import re
 from collections.abc import Sequence
 
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 _SEPARATE_CITATION = re.compile(r"…|\.{2,}|\bvs?\.|\n\s*\n|\.\s+[A-Z]", re.I)
 
@@ -20,7 +20,8 @@ def colocation_groups(
     """Group adjacent sites, never crossing a barrier or repeating an edition.
 
     Each site supplies its citation ID, source span and normalized reporter
-    edition (None for a docket or failed normalization).
+    edition (None for a docket or failed normalization). This reader neither
+    updates citations nor makes identity or root-assignment decisions.
     """
     groups: list[list[tuple[str, Span, str | None]]] = []
     for site in sorted(sites, key=lambda item: item[1].start):

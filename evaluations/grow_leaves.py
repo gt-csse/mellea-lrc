@@ -39,7 +39,7 @@ _SET = "primary"
 SHORT_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
 SHORT_COLOCATION_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.resolve_colocations"
 SHORT_NAME_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.resolve_case_names"
-SHORT_PREDICT_FIELDS_ML_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.predict_fields_ml"
+SHORT_PREDICT_FIELDS_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.predict_fields"
 SHORT_ATTRIBUTION_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.attribute_citations"
 REFERENCE_SUBSTAGE = "grow_leaves.grow_reference_leaves.find_reference_citations"
 REFERENCE_ATTRIBUTION_SUBSTAGE = "grow_leaves.grow_reference_leaves.attribute_citations"
@@ -185,10 +185,10 @@ def score_short_reporter_case_names(document: Document) -> SubstageScore:
     )
 
 
-def score_short_reporter_field_predictions_ml(document: Document) -> SubstageScore:
+def score_short_reporter_field_predictions(document: Document) -> SubstageScore:
     """Record raw inference separately from the consuming case-name decision."""
-    document.get_substage(SHORT_PREDICT_FIELDS_ML_SUBSTAGE)
-    return SubstageScore(SHORT_PREDICT_FIELDS_ML_SUBSTAGE, {})
+    document.get_substage(SHORT_PREDICT_FIELDS_SUBSTAGE)
+    return SubstageScore(SHORT_PREDICT_FIELDS_SUBSTAGE, {})
 
 
 def score_short_reporter_attribution(document: Document) -> SubstageScore:
@@ -498,7 +498,7 @@ def score_leaf_field_corrections(document: Document) -> SubstageScore:
 GROW_LEAVES_SCORERS = {
     SHORT_SUBSTAGE: score_short_reporter_citations,
     SHORT_COLOCATION_SUBSTAGE: score_short_reporter_colocations,
-    SHORT_PREDICT_FIELDS_ML_SUBSTAGE: score_short_reporter_field_predictions_ml,
+    SHORT_PREDICT_FIELDS_SUBSTAGE: score_short_reporter_field_predictions,
     SHORT_NAME_SUBSTAGE: score_short_reporter_case_names,
     SHORT_ATTRIBUTION_SUBSTAGE: score_short_reporter_attribution,
     REFERENCE_SUBSTAGE: score_reference_citations,
@@ -551,7 +551,6 @@ def score_grow_leaves(document: Document) -> WorkflowScore:
     ordered = tuple(GROW_LEAVES_SCORERS)
     required = set(ordered[: ordered.index(last) + 1]) - {
         SUPRA_REVIEW_SUBSTAGE,
-        SHORT_PREDICT_FIELDS_ML_SUBSTAGE,
     }
     if not required.issubset(checkpoint.substage_runs):
         raise ValueError("Incomplete grow_leaves workflow")
@@ -650,9 +649,9 @@ def render_short_reporter_case_names(score: SubstageScore) -> str:
     return render_leaf_substage(score)
 
 
-def render_short_reporter_field_predictions_ml(score: SubstageScore) -> str:
-    if score.substage != SHORT_PREDICT_FIELDS_ML_SUBSTAGE:
-        raise ValueError("Expected short reporter ML prediction checkpoint")
+def render_short_reporter_field_predictions(score: SubstageScore) -> str:
+    if score.substage != SHORT_PREDICT_FIELDS_SUBSTAGE:
+        raise ValueError("Expected short reporter prediction checkpoint")
     return (
         f"{substage_heading(score.substage)}\n\n"
         "Raw four-field predictions saved; field decisions scored at consuming substages."
@@ -728,7 +727,7 @@ def render_leaf_field_corrections(score: SubstageScore) -> str:
 GROW_LEAVES_RENDERERS = {
     SHORT_SUBSTAGE: render_short_reporter_citations,
     SHORT_COLOCATION_SUBSTAGE: render_short_reporter_colocations,
-    SHORT_PREDICT_FIELDS_ML_SUBSTAGE: render_short_reporter_field_predictions_ml,
+    SHORT_PREDICT_FIELDS_SUBSTAGE: render_short_reporter_field_predictions,
     SHORT_NAME_SUBSTAGE: render_short_reporter_case_names,
     SHORT_ATTRIBUTION_SUBSTAGE: render_short_reporter_attribution,
     REFERENCE_SUBSTAGE: render_reference_citations,

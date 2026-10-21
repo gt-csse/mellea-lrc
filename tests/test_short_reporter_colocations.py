@@ -11,6 +11,7 @@ from mellea_lrc.api import (
     find_id_citations,
     find_short_reporter_citations,
     grow_roots,
+    predict_short_reporter_fields,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
@@ -29,7 +30,9 @@ def created(source: str) -> Document:
 
 
 def names(source: str) -> Document:
-    return resolve_short_reporter_case_names(resolve_short_reporter_colocations(created(source)))
+    return resolve_short_reporter_case_names(
+        predict_short_reporter_fields(resolve_short_reporter_colocations(created(source)))
+    )
 
 
 def test_short_creation_reads_locator_and_pins_before_grouping_or_name_reading() -> None:
@@ -200,7 +203,8 @@ def test_short_name_stage_and_group_stage_are_independently_recoverable_after_at
     roots = asyncio.run(grow_roots(Document.from_source(ROOTS + PARALLEL)))
     before = find_short_reporter_citations(roots)
     grouped = resolve_short_reporter_colocations(before)
-    named = resolve_short_reporter_case_names(grouped)
+    predicted = predict_short_reporter_fields(grouped)
+    named = resolve_short_reporter_case_names(predicted)
     attributed = asyncio.run(attribute_short_reporter_citations(named, review=False))
     restored = Document.model_validate_json(attributed.model_dump_json())
 
@@ -253,7 +257,8 @@ def test_short_parsing_stages_raise_for_wrong_order_and_duplicate_runs() -> None
     grouped = resolve_short_reporter_colocations(before)
     with pytest.raises(ValueError, match="already completed"):
         resolve_short_reporter_colocations(grouped)
-    named = resolve_short_reporter_case_names(grouped)
+    predicted = predict_short_reporter_fields(grouped)
+    named = resolve_short_reporter_case_names(predicted)
     with pytest.raises(ValueError, match="already completed"):
         resolve_short_reporter_case_names(named)
 

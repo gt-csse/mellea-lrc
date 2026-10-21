@@ -1,54 +1,72 @@
-"""Adapt document structure to the standalone span readers."""
+"""Prepare source-only context for either field reader; never predict fields."""
 
-from mellea_lrc.config.extraction import ExtractionRules
-from mellea_lrc.field_extraction.models import FieldPrediction
-from mellea_lrc.field_extraction.rule import read_case_name, read_court_and_date, read_pin_cite
+from eyecite.models import ReferenceCitation as EyeciteReferenceCitation
+
+from mellea_lrc.config.extraction import ExtractionRules, stable
+from mellea_lrc.extraction.context.leaves import aliases
+from mellea_lrc.field_extraction.models import FieldContext
 from mellea_lrc.model.citation_windows import after, before
-from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.rule_field_reading import RuleFieldReading
+from mellea_lrc.model.citations import latest
 from mellea_lrc.model.document import Document
+from mellea_lrc.parsing.events import events
 from mellea_lrc.parsing.span import Span
 
 
-def with_root_rule_prediction(citation, document: Document, rules: ExtractionRules):
-    """Cache all four rule spans once, using the document's colocation boundaries.
-
-    Standalone readers receive source text and a locator. The document adapter
-    additionally knows which adjacent locators share one citation, so it uses
-    the same primitive rules on the group's bounded prefix and suffix.
-    """
-    if citation.rule_field_reading is not None:
-        saved = citation.rule_field_reading
-        if (saved.case_name_window, saved.post_locator_window) != (
-            rules.case_name_window,
-            rules.post_locator_window,
-        ):
-            raise ValueError("Rule prediction windows changed; rewind before reading fields")
-        return citation
-    prefix, start = before(document, citation, rules.case_name_window)
-    suffix, suffix_start = after(document, citation, rules.post_locator_window)
-    court, date = read_court_and_date(suffix, suffix_start)
-    site = citation.locator_span
-    next_start = min(
-        (item.locator_span.start for item in document.full_locators if item.locator_span.start >= site.end),
-        default=len(document.text),
-    )
-    stop = min(next_start, site.end + rules.post_locator_window)
-    prediction = FieldPrediction(
-        context_span=Span(min(start, site.start), max(suffix_start + len(suffix), stop, site.end)),
-        case_name=read_case_name(
-            prefix, start, citation.locator[-1].quote if isinstance(citation, FullReporterCitation) else None
-        ),
-        court=court,
-        date=date,
-        pin_cite=read_pin_cite(document.text, site.end, stop),
-    )
-    prediction.validate_source(document.text, site)
-    return citation.with_rule_field_reading(
-        RuleFieldReading(
-            node_id=citation.nodes[-1].id,
-            prediction=prediction,
-            case_name_window=rules.case_name_window,
-            post_locator_window=rules.post_locator_window,
+def root_field_contexts(document: Document, rules: ExtractionRules) -> tuple[FieldContext, ...]:
+    """Describe existing locator groups without extracting or normalizing fields."""
+    contexts = []
+    for citation in document.full_locators:
+        prefix, start = before(document, citation, rules.case_name_window)
+        suffix, suffix_start = after(document, citation, rules.post_locator_window)
+        site = citation.locator_span
+        next_start = min(
+            (
+                item.locator_span.start
+                for item in document.full_locators
+                if item.locator_span.start >= site.end
+            ),
+            default=len(document.text),
         )
-    )
+        contexts.append(
+            FieldContext(
+                kind=citation.kind,
+                name_before=Span(start, start + len(prefix)),
+                court_date_after=Span(suffix_start, suffix_start + len(suffix)),
+                pin_region=Span(site.end, min(next_start, site.end + rules.post_locator_window)),
+            )
+        )
+    return tuple(contexts)
+
+
+def short_field_contexts(document: Document) -> tuple[FieldContext, ...]:
+    """Give both readers the same group boundary and currently known name aliases."""
+    rules = stable()
+    groups = {group.id: group.citation_ids for group in document.short_reporter_colocations}
+    by_id = {citation.id: citation for citation in document.short_reporters}
+    source_events = events(document.text)
+    known_names = tuple(aliases(document))
+    contexts = []
+    for citation in document.short_reporters:
+        group_id = latest(citation.colocation_id)
+        first = by_id[groups[group_id][0]] if group_id is not None else citation
+        first_span = first.short_locator_span
+        start = max(0, first_span.start - rules.case_name_window)
+        for previous in document.citations:
+            if previous.site_span.end <= first_span.start:
+                start = max(start, previous.site_span.end)
+        for event in source_events:
+            if not isinstance(event, EyeciteReferenceCitation):
+                _, end = event.span_with_pincite()
+                if end <= first_span.start:
+                    start = max(start, end)
+        site = citation.short_locator_span
+        contexts.append(
+            FieldContext(
+                kind="short_reporter",
+                name_before=Span(start, first_span.start),
+                court_date_after=Span(site.end, site.end),
+                pin_region=site,
+                known_names=known_names,
+            )
+        )
+    return tuple(contexts)

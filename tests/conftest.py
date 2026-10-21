@@ -21,10 +21,10 @@ def rule_field_policy(monkeypatch):
         return {
             **values,
             "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED": "false",
-            "MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME": "rule",
-            "MELLEA_LRC_FIELD_EXTRACTION_COURT": "rule",
-            "MELLEA_LRC_FIELD_EXTRACTION_DATE": "rule",
-            "MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE": "rule",
+            "MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME": "RULE",
+            "MELLEA_LRC_FIELD_EXTRACTION_COURT": "RULE",
+            "MELLEA_LRC_FIELD_EXTRACTION_DATE": "RULE",
+            "MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE": "RULE",
         }
 
     monkeypatch.setattr(field_extraction, "read_env", settings)

@@ -2,6 +2,7 @@
 
 import re
 
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.parsing.case_names import CaseName, CaseNameKind
 from mellea_lrc.parsing.reporters import full_reporter_readings
 from mellea_lrc.parsing.span import Span
@@ -139,3 +140,28 @@ def read_case_name(before: str, start: int, reporter_quote: str | None) -> Span 
     if not name:
         return None
     return Span(start + match.start() + offset, start + match.start() + offset + len(name))
+
+
+def read_short_case_name(before: str, start: int, known_names: tuple[str, ...] = ()) -> Span | None:
+    """Read a short name adjacent to a locator in a caller-bounded prefix."""
+    if not isinstance(before, str) or type(start) is not int or start < 0:
+        raise ValueError("A short-name prefix needs text and a nonnegative source offset")
+    known: list[Span] = []
+    for name in known_names:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Known case names must be nonempty strings")
+        expression = rf"(?<!\w){fuzzy_literal(name, whitespace=True, newline=True)}\s*[,(]\s*$"
+        if match := re.search(expression, before, re.I):
+            finish = len(before.rstrip()) - 1
+            finish = len(before[:finish].rstrip())
+            known.append(Span(start + match.start(), start + finish))
+    if known:
+        return min(known, key=lambda part: part.start)
+    match = re.search(r"(?P<name>[A-Z][\w.'’&/-]*(?:\s+[\w.'’&/-]+){0,12})\s*[,(]\s*$", before)
+    if match is None:
+        return None
+    name_start = match.start("name")
+    signal = re.match(r"(?:See(?:\s+also)?|But\s+see|Cf\.|Accord|Compare)\s+", match.group("name"), re.I)
+    if signal:
+        name_start += signal.end()
+    return Span(start + name_start, start + match.end("name"))
