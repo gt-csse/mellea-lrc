@@ -89,8 +89,11 @@ class CitationField(BaseModel, Generic[T]):
             raise ValueError("Unnormalizable field needs an error and no value")
         if (self.quote is None) != (self.span is None):
             raise ValueError("Quote and span must be present together")
-        if self.quote is not None and not self.quote.strip():
-            raise ValueError("Field quote is blank")
+        if self.quote is not None:
+            if not self.quote.strip():
+                raise ValueError("Field quote is blank")
+            if self.span is not None and self.span.end - self.span.start != len(self.quote):
+                raise ValueError("Field span length does not match its quote")
         return self
 
     def validate_source(self, source: str) -> None:
