@@ -2318,7 +2318,7 @@ preprocessing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "requests", specifier = ">=2.32,<3" },
 ]
 
