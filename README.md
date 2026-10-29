@@ -25,8 +25,19 @@ The command runs all four workflows, including docket hunting and docket-root
 review, and writes a native `Document` JSON. Upload `document.json` to the
 [visualizer](https://mellea-lrc-visualizer.woodygoodenough.com/) to inspect the result.
 The same file is updated atomically at each completed checkpoint. If validation
-fails, the last saved checkpoint remains available. The output file is replaced
-when rerunning the command; it must be different from the source document.
+fails, the last saved checkpoint remains available. Completed model reviews are
+saved immediately in the adjacent `document.json.run/` directory. Keep this
+directory with the Document to resume without repeating recorded reviews:
+
+```bash
+uv run mellea-lrc resume document.json
+```
+
+Resume calls the same workflow APIs, skipping completed substages. It checks the
+source, execution settings, code, and dependencies before continuing. Credentials
+remain in `.env`; their values are never copied into run metadata. Existing output
+is never overwritten by a new `validate` command. The output must be different
+from the source document.
 Plain-text input is also supported. Run `uv run mellea-lrc validate --help` for usage.
 
 ## Rule and ML field extraction
@@ -61,6 +72,7 @@ src/mellea_lrc/
   preprocessing/   source loading and text preparation
   matching/        fuzzy matching and grounded source quotes
   llm/             model configuration and the reusable IVR wrapper
+  execution.py     durable execution and resume through the existing workflows
   configuration.py shared .env reader for required runtime settings
 ```
 
@@ -88,6 +100,22 @@ includes the Document workflows and their runtime dependencies. The
 files. The optional `ml-cite` extra adds the ML model runtime. Repository
 installation is shown in the quick start; run the active tests with
 `uv run pytest`.
+
+The same durable runner is available from Python:
+
+```python
+from mellea_lrc.execution import validate, resume
+
+document = asyncio.run(validate(Path("filing.pdf"), Path("document.json")))
+# After an interrupted execution:
+document = asyncio.run(resume(Path("document.json")))
+```
+
+Document serialization is unchanged. Existing saved Documents still load and
+support `get_stage()` and `get_substage()`. The resume command requires its
+execution sidecar; it does not guess missing settings for an older artifact.
+Completed successful and failed reviews are both retained. A request interrupted
+before its response was durably recorded may need to be sent again.
 
 ## Runtime configuration
 
@@ -117,7 +145,7 @@ Define that complete package using the prefix `MELLEA_LRC_PROFILE_MY_FULL_REVIEW
 | `API_BASE` | Endpoint base URL. |
 | `API_KEY_ENV` | Name of the credential setting in the same `.env` file. |
 | `TEMPERATURE` | Generation temperature. |
-| `TIMEOUT_SECONDS` | Total time allowed for the IVR result. |
+| `TIMEOUT_SECONDS` | SDK HTTP connection, read, write, and pool timeout for each request. |
 | `MAX_TOKENS` | Output token budget. |
 | `MAX_ATTEMPTS` | Maximum generation and repair attempts. |
 | `OUTPUT_MODE` | `json_schema`, `json_object`, or `prompt`. |
@@ -165,12 +193,18 @@ text is not rewritten into valid JSON. The IVR trace retains the chosen mode,
 schema, provider responses, and every repair. Its configured model alias may
 differ from the actual model name in the provider response.
 
-The profile's `timeout_seconds` also bounds how long the caller awaits the IVR result across
-its repair turns.
-If a later request stalls, the failed trace keeps completed attempts captured
-before native repair, including their provider exchanges and validation feedback,
-then selects a final timeout record. That timeout record contains no invented
-provider response; earlier responses remain available for diagnosis.
+There is no whole-review deadline. Each request, including a repair, has its
+own HTTP timeout; validation does not consume a shared timeout budget. A stream
+can take longer overall while continuing to deliver data. A provider timeout,
+connection error, or unsuccessful HTTP status produces a failed trace retaining
+earlier attempts and their validation feedback. Missing provider responses and
+usage counters are not invented.
+
+Saved traces support failure and repair rates, token usage, and cache statistics
+in the workflow reports and a run-level resource summary. These include reporting
+coverage, the configured and returned model identifiers, and elapsed time for new
+reviews. See [LLM telemetry](evaluations/README.md#llm-telemetry) for definitions
+and the command for reporting from existing artifacts without model calls.
 
 Provider factories also read `.env` lazily and require these settings:
 

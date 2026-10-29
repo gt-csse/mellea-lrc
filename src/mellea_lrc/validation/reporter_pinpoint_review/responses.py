@@ -6,7 +6,7 @@ numbers. The durable support decision is constructed after quote grounding.
 
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
 from mellea_lrc.model.citations.reporter_pinpoint import (
@@ -48,22 +48,14 @@ def validate_evidence_quotes(evidence: tuple[StoredOpinionEvidenceQuote, ...]) -
 
 
 class PageEvidenceQuote(OpinionEvidenceQuote):
-    page_indices: tuple[StrictInt, ...] = Field(
-        description="Copy page_index identifiers from this opinion's source blocks, not printed page numbers. "
-        "Use all pages crossed by a contiguous quote; use [] only for unpaginated text."
-    )
     footnote: str | None = Field(
-        description="The printed footnote containing this passage, if established; otherwise null."
+        description="The printed footnote containing this quoted passage, if established; otherwise null."
     )
 
     @model_validator(mode="after")
-    def _valid_pages(self) -> Self:
-        if any(index < 0 for index in self.page_indices) or len(set(self.page_indices)) != len(
-            self.page_indices
-        ):
-            raise ValueError("Evidence page indices must be nonnegative and unique")
-        if self.footnote == "" or (not self.page_indices and self.footnote is not None):
-            raise ValueError("A footnote requires a named source page and a nonempty label")
+    def _valid_footnote(self) -> Self:
+        if self.footnote is not None and not self.footnote.strip():
+            raise ValueError("A footnote label must be nonempty or null")
         return self
 
 
@@ -95,8 +87,7 @@ class UnpaginatedSupportResponse(BaseModel):
 class PaginatedSupportResponse(UnpaginatedSupportResponse):
     evidence: tuple[PageEvidenceQuote, ...] = Field(
         description="Up to three independent exact source quotes. Each item should contain one "
-        "representative sentence or short fragment, at most 1200 characters, with its own source pages. "
+        "representative sentence or short fragment, at most 1200 characters, with a footnote label only when established. "
         "The items need not be adjacent; put the explanation in reason.",
         json_schema_extra={"maxItems": MAX_EVIDENCE_QUOTES},
     )
-    correct_page: StrictBool | None

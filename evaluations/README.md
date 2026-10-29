@@ -5,25 +5,55 @@ Each has one scorer and one Markdown report, with its JSON representation
 beside it. Reports follow the catalog hierarchy: workflow, stage, then substage.
 The semantic grouping introduces no additional metrics or denominators.
 
-Each workflow report also includes model token usage from its retained IVR
-attempts, grouped by substage and model. This is independent of accuracy scoring
-and counts repair attempts and failed reviews as well as successful answers.
-The scorer reads one cumulative Document per filing; recovered checkpoints are
-not separate calls and must not be summed together.
+## LLM telemetry
 
-Token totals are reported subtotals, with coverage indicating how many attempts
-have provider usage. Missing counters stay unavailable rather than becoming
-zero. The cache rate is cached input tokens divided by input tokens only for
-attempts that report both counters. Cached tokens already belong to the input
-total; reasoning tokens already belong to the output total. A repeated prefix
-alone does not prove a cache hit. Interrupted streams may omit their final usage
-chunk, and some providers report tokens without reporting cache counters.
+Each workflow report includes resource statistics from its retained IVR traces,
+independently of accuracy scoring. The run also has `llm_usage.md` and
+`llm_usage.json`, covering all four workflows. To regenerate only telemetry from
+saved Documents, without loading annotations or making provider calls:
+
+```sh
+uv run --no-sync python -m evaluations.llm_usage evaluations/results/primary/<UTC timestamp>
+```
+
+The reader uses one cumulative Document per filing. Recovered checkpoints are
+views of the same history, not separate calls; do not add their counters together.
+Rows distinguish substage, configured model, and endpoint, and show returned
+model identifiers separately because a provider alias can resolve to another
+model. Profile settings remain available without credentials.
+
+| Measurement | Definition |
+| --- | --- |
+| Review failure rate | Failed IVR reviews divided by all retained IVR reviews. A review includes its repair attempts. |
+| First-pass success | Successful reviews that needed one attempt, divided by all reviews. |
+| Repair rate | Reviews with more than one attempt, divided by all reviews. |
+| Recovery after repair | Successful reviews with repairs, reported against reviews with repairs. |
+| Failure categories | Attempt failures and terminal review failures, counted separately. Categories can overlap, so their counts need not sum to all failures. |
+| Token usage | Reported input, output, total, cached input, cache-write input, and reasoning output counters, with coverage for each counter. |
+| Request cache hit rate | Attempts reporting positive cached input tokens divided by attempts reporting that counter. A reported zero is a miss; an absent counter is unknown. |
+| Token cache rate | Cached input tokens divided by input tokens, using only attempts reporting both counters. A zero input denominator is unavailable. |
+| Elapsed time | Measured review duration, including generation, validation, and repairs. Historical traces without timing remain unavailable. |
+
+A valid negative citation judgment is a successful model review. These failure
+rates concern provider requests and review validation, not citation accuracy.
+
+Token totals are observed subtotals, not estimates: missing counters stay
+unavailable rather than becoming zero. Cached tokens already belong to the input
+total; reasoning tokens already belong to the output total. A repeated prefix or
+low latency does not establish a cache hit. Interrupted streams may omit their
+final usage chunk, and some providers report tokens without cache counters.
+Reported cache hits describe the provider response; they do not expose the
+provider's cache contents or eviction policy. Overlapping review durations are
+not the run's wall-clock duration.
 
 Usage is a typed view of each `IvrAttempt.response`, preserving the provider data
 without another persisted counter log. The IVR wrapper also retains a separate
-stream usage chunk when Mellea's reconstructed response omits it. Re-scoring a
-saved run produces the usage table and the `llm_usage` JSON section without new
-model calls.
+stream usage chunk when Mellea's reconstructed response omits it. Typed provider
+errors retain their class, status and request identifier when available, plus
+earlier replies and repairs. Failures with no provider response have unknown
+token usage, not zero usage. Historical outcomes without an IVR trace cannot
+recover missing requests, usage, or failure details and are outside these trace
+counts. No request or token totals are inferred from those outcomes.
 
 ## Fresh primary end-to-end run
 

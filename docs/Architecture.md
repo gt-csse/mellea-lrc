@@ -142,6 +142,13 @@ Only identical result types and annotation-file loading are shared.
 `experiments/` and `archive/` are outside the installed package and production
 workflows.
 
+LLM review records own their `IvrRun`: each attempt retains the provider
+exchange, requirement results, and any typed transport error. Token counters
+and failure categories are derived views of those records, rather than another
+mutable usage log. New calls also retain measured elapsed time. Evaluation
+summarizes this history by workflow, substage, model and endpoint, preserving
+missing-counter coverage. See [LLM telemetry](../evaluations/README.md#llm-telemetry).
+
 ## Citation-field reading
 
 Rule reading belongs to the extraction substages that own each field. Their
