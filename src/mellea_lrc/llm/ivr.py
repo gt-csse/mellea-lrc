@@ -8,13 +8,24 @@ from copy import copy
 from dataclasses import dataclass, field
 from enum import Enum
 from threading import Lock
+from time import monotonic
 from typing import TYPE_CHECKING
 
-from openai import APITimeoutError
+from httpx2 import RequestNotRead
+from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError
 from pydantic import BaseModel, JsonValue, ValidationError
 
 from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, PROFILE_OPTION, LlmOutputMode
-from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
+from mellea_lrc.model.ivr import (
+    HTTP_REQUEST_REQUIREMENT_DESCRIPTION,
+    HTTP_TIMEOUT_REQUIREMENT_DESCRIPTION,
+    SCHEMA_REQUIREMENT_DESCRIPTION,
+    IvrAttempt,
+    IvrFailureKind,
+    IvrRequirementAttempt,
+    IvrRun,
+    IvrTransportError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -73,7 +84,26 @@ async def run_instruct_ivr(
     strategy: MultiTurnStrategy,
     model_options: dict[str, object],
 ) -> IvrRun:
+    """Run IVR, reusing durably recorded reviews inside a resumable execution."""
+    from mellea_lrc.llm.journal import active_journal
+
+    journal = active_journal()
+    if journal is not None:
+        return await journal.run(
+            session, spec, strategy=strategy, model_options=model_options, invoke=_run_instruct_ivr
+        )
+    return await _run_instruct_ivr(session, spec, strategy=strategy, model_options=model_options)
+
+
+async def _run_instruct_ivr(
+    session: MelleaSession,
+    spec: InstructIvrSpec,
+    *,
+    strategy: MultiTurnStrategy,
+    model_options: dict[str, object],
+) -> IvrRun:
     """Run one IVR instruction and retain Mellea's inspectable run history."""
+    started = monotonic()
     from mellea.backends import ModelOption
     from mellea.stdlib import functional as mfuncs
     from mellea.stdlib.context import ChatContext
@@ -90,7 +120,8 @@ async def run_instruct_ivr(
     local_strategy = copy(strategy)
     native_repair = local_strategy.repair
     native_iteration = local_strategy._subsample_iteration
-    http_timeout: APITimeoutError | None = None
+    provider_error: APIError | None = None
+    application_error: Exception | None = None
     completed: dict[int, tuple[object, IvrAttempt]] = {}
     history_lock = Lock()
     pending: IvrAttempt | None = None
@@ -158,19 +189,24 @@ async def run_instruct_ivr(
 
     local_strategy.repair = capture_repair
 
-    async def capture_http_timeout(*args, **kwargs):
-        nonlocal http_timeout
+    async def capture_provider_error(*args, **kwargs):
+        nonlocal provider_error, application_error
         try:
             async for sample in native_iteration(*args, **kwargs):
                 yield sample
-        except APITimeoutError as error:
+        except APIError as error:
             # Mellea 0.7 returns earlier failed samples when a later request
             # raises. Observe that error on this copied strategy so the trace
             # includes the interrupted request as well as completed repairs.
-            http_timeout = error
+            provider_error = error
+            raise
+        except Exception as error:
+            # Mellea can return earlier failed samples after an exception. An
+            # application bug must still raise, never look like a failed review.
+            application_error = error
             raise
 
-    local_strategy._subsample_iteration = capture_http_timeout
+    local_strategy._subsample_iteration = capture_provider_error
     try:
         # Only the backend HTTP client enforces a time limit. Validation and
         # subsequent repairs do not share a review-wide deadline.
@@ -189,14 +225,19 @@ async def run_instruct_ivr(
             if spec.prefix is None
             else {**options, ModelOption.SYSTEM_PROMPT: spec.prefix},
         )
-    except APITimeoutError as error:
-        http_timeout = error
+    except APIError as error:
+        provider_error = error
         sampled = None
-    if http_timeout is not None and (sampled is None or not sampled.success):
+    if application_error is not None:
+        raise application_error
+    if provider_error is not None and (sampled is None or not sampled.success):
         with history_lock:
             attempts = tuple(attempt for _, attempt in completed.values())
-        return _http_timeout_ivr_run(session, spec, model_options, http_timeout, attempts, pending)
-    return _to_ivr_run(session, spec, model_options, sampled)
+        run = _api_error_ivr_run(session, spec, model_options, provider_error, attempts, pending)
+    else:
+        run = _to_ivr_run(session, spec, model_options, sampled)
+    # This is wrapper wall time, including validation/repair. It is not HTTP latency.
+    return run.model_copy(update={"elapsed_seconds": monotonic() - started})
 
 
 def _output_transport(
@@ -233,19 +274,37 @@ def _output_transport(
     return description, variables, None, options
 
 
-_SCHEMA_REQUIREMENT = "Return exactly one JSON object matching the required output schema."
-_HTTP_TIMEOUT_REQUIREMENT = "The provider HTTP request completed within its configured timeout."
-
-
-def _http_timeout_ivr_run(
+def _api_error_ivr_run(
     session: MelleaSession,
     spec: InstructIvrSpec,
     model_options: Mapping[object, object],
-    error: APITimeoutError,
+    error: APIError,
     completed_attempts: tuple[IvrAttempt, ...] = (),
     pending_attempt: IvrAttempt | None = None,
 ) -> IvrRun:
-    """Retain an actual HTTP timeout and every preceding generation/repair."""
+    """Retain a real SDK error without treating application errors as model failures."""
+    if isinstance(error, APITimeoutError):
+        kind = IvrFailureKind.HTTP_TIMEOUT
+    elif isinstance(error, APIConnectionError):
+        kind = IvrFailureKind.CONNECTION_ERROR
+    elif isinstance(error, APIStatusError):
+        kind = IvrFailureKind.HTTP_STATUS
+    else:
+        kind = IvrFailureKind.PROVIDER_ERROR
+    transport_error = IvrTransportError(
+        kind=kind,
+        error_type=type(error).__name__,
+        message=str(error),
+        status_code=getattr(error, "status_code", None),
+        request_id=getattr(error, "request_id", None),
+    )
+    try:
+        body = json.loads(error.request.content)
+    except (RequestNotRead, ValueError, UnicodeDecodeError):
+        body = None
+    # The SDK retains the failed request even when no model answer exists.
+    # Save messages only, never headers or credential-bearing connection data.
+    request = body.get("messages") if isinstance(body, dict) else None
     return IvrRun(
         success=False,
         selected_attempt=len(completed_attempts),
@@ -253,12 +312,15 @@ def _http_timeout_ivr_run(
             *completed_attempts,
             IvrAttempt(
                 output=pending_attempt.output if pending_attempt is not None else "",
-                request=pending_attempt.request if pending_attempt is not None else None,
+                request=pending_attempt.request if pending_attempt is not None else request,
                 response=pending_attempt.response if pending_attempt is not None else None,
+                transport_error=transport_error,
                 requirements=(
                     *(pending_attempt.requirements if pending_attempt is not None else ()),
                     IvrRequirementAttempt(
-                        description=_HTTP_TIMEOUT_REQUIREMENT,
+                        description=HTTP_TIMEOUT_REQUIREMENT_DESCRIPTION
+                        if kind is IvrFailureKind.HTTP_TIMEOUT
+                        else HTTP_REQUEST_REQUIREMENT_DESCRIPTION,
                         passed=False,
                         reason=f"{type(error).__name__}: {error}",
                         score=None,
@@ -293,7 +355,7 @@ def _schema_requirement(output_format: type[BaseModel]) -> Requirement:
     from mellea.stdlib.requirements import req
 
     return req(
-        _SCHEMA_REQUIREMENT,
+        SCHEMA_REQUIREMENT_DESCRIPTION,
         validation_fn=lambda ctx: _validate_schema(ctx, output_format),
     )
 
@@ -327,7 +389,7 @@ def _validate_schema(ctx: object, output_format: type[BaseModel]) -> ValidationR
     try:
         _parse_schema(ctx, output_format)
     except InvalidJsonResponseError as error:
-        return ValidationResult(result=False, reason=f"{_SCHEMA_REQUIREMENT} {error}")
+        return ValidationResult(result=False, reason=f"{SCHEMA_REQUIREMENT_DESCRIPTION} {error}")
     except ValidationError as error:
         return ValidationResult(result=False, reason=_schema_error_message(error))
     return ValidationResult(result=True)
@@ -372,7 +434,7 @@ def _schema_error_message(error: ValidationError) -> str:
         else:
             details.append(f"{location}: {item['msg']}.")
     suffix = " ".join(details) if details else "The previous response did not match the schema."
-    return f"{_SCHEMA_REQUIREMENT} {suffix}"
+    return f"{SCHEMA_REQUIREMENT_DESCRIPTION} {suffix}"
 
 
 def _schema_location(location: object) -> str:

@@ -315,9 +315,13 @@ def test_scoring_writes_one_report_pair_per_workflow(tmp_path: Path, monkeypatch
     reports = evaluation.score_run(tmp_path)
     assert set(reports) == _WORKFLOWS
     assert len(calls) == len(_WORKFLOWS) and set(calls) == _WORKFLOWS
-    assert {file.name for file in tmp_path.glob("*.md")} == {f"{name}.md" for name in _WORKFLOWS}
+    assert {file.name for file in tmp_path.glob("*.md")} == {
+        "llm_usage.md",
+        *(f"{name}.md" for name in _WORKFLOWS),
+    }
     assert {file.name for file in tmp_path.glob("*.json")} == {
         "run.json",
+        "llm_usage.json",
         *(f"{name}.json" for name in _WORKFLOWS),
     }
 

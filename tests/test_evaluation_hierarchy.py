@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from evaluations import validate_all_citation_content
 from evaluations import score_run as scoring
+from evaluations import validate_all_citation_content
 from evaluations.grow_leaves import WorkflowScore as LeafWorkflowScore
 from evaluations.score_run import score_run
 from evaluations.score_types import (
@@ -185,4 +185,4 @@ def test_default_reports_only_score_workflows_present_in_the_documents(
 
     assert tuple(reports) == completed
     assert tuple(scored) == completed
-    assert {path.stem for path in tmp_path.glob("*.md")} == set(completed)
+    assert {path.stem for path in tmp_path.glob("*.md")} == {*completed, "llm_usage"}

@@ -1,10 +1,8 @@
 """The CLI composes the public workflows and preserves native checkpoints."""
 
-from pathlib import Path
-
 import pytest
 
-from mellea_lrc import cli
+from mellea_lrc import cli, execution
 from mellea_lrc.config import field_extraction
 from mellea_lrc.extraction.field_readers import ml_cite
 from mellea_lrc.model.document import Document
@@ -15,6 +13,12 @@ WORKFLOWS = (
     "grow_leaves",
     "validate_all_citation_content",
 )
+
+
+@pytest.fixture(autouse=True)
+def local_run_configuration(monkeypatch):
+    monkeypatch.setattr(execution, "_configuration", lambda fields: {})
+    monkeypatch.setattr(execution, "_implementation_fingerprint", dict)
 
 
 def test_validate_composes_workflows_and_saves_native_checkpoints(tmp_path, monkeypatch, capsys):
@@ -36,14 +40,14 @@ def test_validate_composes_workflows_and_saves_native_checkpoints(tmp_path, monk
             options["checkpoint"](document)
             return document
 
-        monkeypatch.setattr(cli, name, workflow)
+        monkeypatch.setattr(execution, name, workflow)
 
     assert cli.main(["validate", str(source), "--output", str(output)]) == 0
     assert called == list(WORKFLOWS)
     restored = Document.model_validate_json(output.read_text())
     assert restored.text == source.read_text()
     assert f"Saved {output}" in capsys.readouterr().out
-    assert list(output.parent.iterdir()) == [output]
+    assert set(output.parent.iterdir()) == {output, execution._state_dir(output)}
 
 
 def test_help_needs_no_source_or_runtime_configuration(tmp_path, monkeypatch, capsys):
@@ -169,25 +173,44 @@ def test_provider_failure_keeps_last_native_checkpoint(tmp_path, monkeypatch, ca
         options["checkpoint"](document)
         raise RuntimeError("Provider unavailable")
 
-    monkeypatch.setattr(cli, "grow_roots", fail)
+    monkeypatch.setattr(execution, "grow_roots", fail)
     with pytest.raises(RuntimeError, match="Provider unavailable"):
         cli.main(["validate", str(source), "--output", str(output)])
     assert Document.model_validate_json(output.read_text()).text == source.read_text()
     assert "Saved " not in capsys.readouterr().out
 
 
-def test_failed_checkpoint_write_preserves_previous_output(tmp_path, monkeypatch):
+def test_existing_output_is_not_overwritten(tmp_path):
     source = tmp_path / "source.txt"
     source.write_text("A legal document", encoding="utf-8")
     output = tmp_path / "document.json"
     previous = Document.from_source("Previous artifact").model_dump_json()
     output.write_text(previous, encoding="utf-8")
 
-    def fail_replace(self, target):
-        raise OSError("Cannot replace checkpoint")
-
-    monkeypatch.setattr(Path, "replace", fail_replace)
-    with pytest.raises(OSError, match="Cannot replace checkpoint"):
+    with pytest.raises(FileExistsError, match="use resume"):
         cli.main(["validate", str(source), "--output", str(output)])
     assert output.read_text() == previous
     assert sorted(path.name for path in tmp_path.iterdir()) == ["document.json", "source.txt"]
+
+
+def test_resume_command_uses_the_saved_document(tmp_path, monkeypatch):
+    output = tmp_path / "document.json"
+    output.write_text(Document.from_source("Saved source").model_dump_json())
+    called = []
+
+    async def resume(path):
+        called.append(path)
+
+    monkeypatch.setattr(execution, "resume", resume)
+    assert cli.main(["resume", str(output)]) == 0
+    assert called == [output]
+
+
+def test_resume_missing_document_fails_before_execution(tmp_path, monkeypatch):
+    async def unexpected(path):
+        pytest.fail("Missing document reached the runner")
+
+    monkeypatch.setattr(execution, "resume", unexpected)
+    with pytest.raises(SystemExit) as error:
+        cli.main(["resume", str(tmp_path / "missing.json")])
+    assert error.value.code == 2
