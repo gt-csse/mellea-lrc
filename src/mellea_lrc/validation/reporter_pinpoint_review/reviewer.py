@@ -65,7 +65,7 @@ class IvrReporterPinpointReviewer(IvrReviewer):
                 output_format=context.response_model,
                 requirements=(
                     req(
-                        "Ground each evidence quote inside its named source pages, or unpaginated excerpt.",
+                        "Ground each evidence quote in its supplied opinion excerpt; recover pages from the grounded span.",
                         validation_fn=lambda ctx: _validate_evidence(ctx, context),
                     ),
                 ),
