@@ -5,49 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
-from mellea_lrc.api import (
-    Document,
-    FieldExtractionConfig,
-    grow_leaves,
-    grow_roots,
-    validate_all_citation_content,
-    validate_roots_citation_identity,
-)
-
-
-async def _validate(source: Path, output: Path) -> None:
-    fields = FieldExtractionConfig.from_env()
-    fields.validate_runtime()
-    output.parent.mkdir(parents=True, exist_ok=True)
-
-    def save(document: Document) -> None:
-        # Replace only a complete JSON file, preserving the last checkpoint if
-        # serialization or writing fails. The temporary file shares its filesystem.
-        with TemporaryDirectory(dir=output.parent, prefix=f".{output.name}-") as directory:
-            temporary = Path(directory) / output.name
-            temporary.write_text(document.model_dump_json(indent=2), encoding="utf-8")
-            temporary.replace(output)
-
-    document = Document.from_source(source)
-    save(document)
-    print("Running grow_roots...", flush=True)
-    document = await grow_roots(
-        document,
-        hunt_dockets=True,
-        review_docket_roots=True,
-        field_extraction=fields,
-        checkpoint=save,
-    )
-    print("Running validate_roots_citation_identity...", flush=True)
-    document = await validate_roots_citation_identity(document, checkpoint=save)
-    print("Running grow_leaves...", flush=True)
-    document = await grow_leaves(document, field_extraction=fields, checkpoint=save)
-    print("Running validate_all_citation_content...", flush=True)
-    document = await validate_all_citation_content(document, checkpoint=save)
-    save(document)
-    print(f"Saved {output}")
+from mellea_lrc import execution
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,12 +21,19 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("document.json"),
         help="Native Document JSON (default: document.json)",
     )
+    resume = commands.add_parser("resume", help="Continue a saved Document with its adjacent .run directory")
+    resume.add_argument("document", type=Path, help="Path to the saved Document JSON")
     args = parser.parse_args(argv)
+    if args.command == "resume":
+        if not args.document.is_file():
+            parser.error(f"Document is not a file: {args.document}")
+        asyncio.run(execution.resume(args.document))
+        return 0
     if not args.source.is_file():
         parser.error(f"Source is not a file: {args.source}")
     if args.output.exists() and args.output.samefile(args.source):
         parser.error("Output must be different from the source document")
     if args.output.exists() and not args.output.is_file():
         parser.error(f"Output is not a file: {args.output}")
-    asyncio.run(_validate(args.source, args.output))
+    asyncio.run(execution.validate(args.source, args.output))
     return 0

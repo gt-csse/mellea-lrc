@@ -209,10 +209,10 @@ def test_example_defines_all_model_substages_and_no_credentials():
     full = load_profile(
         "validate_all_citation_content.review_citation_content.review_full_opinions_llm", environ=values
     )
-    assert pages.name == full.name == "robspark_granite4_1_30b"
+    assert pages.name == full.name == "openrouter_glm"
     assert pages.timeout_seconds == full.timeout_seconds == 300
     assert pages.max_tokens == full.max_tokens == 8000
-    assert pages.reasoning_effort is full.reasoning_effort is None
+    assert pages.reasoning_effort == full.reasoning_effort == "low"
     assert LlmProfile.from_env("nrp_glm", environ=values).max_tokens == 8000
 
 
