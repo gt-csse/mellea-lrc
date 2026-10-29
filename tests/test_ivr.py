@@ -24,7 +24,7 @@ from mellea_lrc.llm.config import (
 from mellea_lrc.llm.ivr import (
     InstructIvrSpec,
     InvalidJsonResponseError,
-    _http_timeout_ivr_run,
+    _api_error_ivr_run,
     _output_transport,
     _parse_schema,
     _requirements_for,
@@ -32,7 +32,7 @@ from mellea_lrc.llm.ivr import (
     _to_ivr_run,
     run_instruct_ivr,
 )
-from mellea_lrc.model.ivr import IvrRun
+from mellea_lrc.model.ivr import IvrFailureKind, IvrRun
 
 
 class _Output(BaseModel):
@@ -549,7 +549,12 @@ def test_cumulative_repairs_can_exceed_individual_http_timeout(offline_openai_se
     run, elapsed = asyncio.run(invoke())
     assert run.success
     assert elapsed > 0.08
+    assert 0.08 < run.elapsed_seconds <= elapsed
     assert len(requests) == len(run.attempts) == 3
+    assert run.repaired and run.recovered_after_repair
+    assert not run.first_attempt_success
+    assert run.failure_kinds == (IvrFailureKind.REQUIREMENT_VALIDATION,)
+    assert run.final_failure_kinds == ()
     assert run.attempts[-1].requirements[-1].passed
     assert "Decision must be true." in requests[1]["messages"][-1]["content"]
     assert run.model_options[ModelOption.STREAM_TIMEOUT] is None
@@ -644,14 +649,148 @@ def test_http_timeout_preserves_completed_repairs_and_stops_requests(
         "The provider HTTP request completed within its configured timeout."
     )
     assert "APITimeoutError" in run.failure_reason
+    assert run.attempts[-1].transport_error.error_type == "APITimeoutError"
+    assert run.attempts[-1].failure_kinds == (IvrFailureKind.HTTP_TIMEOUT,)
+    assert run.attempts[-1].usage is None
+    assert run.attempts[-1].request == requests[-1]["messages"]
+    assert "offline-secret" not in run.model_dump_json()
+    assert run.elapsed_seconds >= 0
     assert IvrRun.model_validate_json(run.model_dump_json()) == run
 
 
-def test_http_timeout_helper_is_a_durable_failed_run() -> None:
+@pytest.mark.parametrize("completed", [0, 1])
+@pytest.mark.parametrize("status,error_type", [(429, "RateLimitError"), (500, "InternalServerError")])
+def test_sdk_http_status_errors_keep_typed_failure_and_completed_repairs(
+    offline_openai_session, completed, status, error_type
+) -> None:
+    import httpx2
+
+    requests = []
+
+    async def respond(request):
+        requests.append(json.loads(request.content))
+        if len(requests) == completed + 1:
+            return httpx2.Response(
+                status,
+                request=request,
+                headers={"x-request-id": "failed-request-id"},
+                json={"error": {"message": "Provider unavailable.", "type": "server_error"}},
+            )
+        return _http_response(request, len(requests), '{"decision":false}')
+
+    async def invoke():
+        session, options = await offline_openai_session(respond)
+        return await run_instruct_ivr(
+            session,
+            InstructIvrSpec(
+                description="Review the source.",
+                output_format=_Output,
+                requirements=(
+                    req("Ground evidence.", validation_fn=lambda _: ValidationResult(result=False)),
+                ),
+            ),
+            strategy=MultiTurnStrategy(loop_budget=3),
+            model_options=options,
+        )
+
+    run = asyncio.run(invoke())
+    assert len(requests) == len(run.attempts) == completed + 1
+    assert not run.success
+    attempt = run.attempts[-1]
+    assert attempt.transport_error.error_type == error_type
+    assert attempt.transport_error.status_code == status
+    assert attempt.transport_error.request_id == "failed-request-id"
+    assert "Provider unavailable." in attempt.transport_error.message
+    assert attempt.failure_kinds == (IvrFailureKind.HTTP_STATUS,)
+    assert attempt.request == requests[-1]["messages"]
+    assert attempt.response is None and attempt.usage is None and attempt.output == ""
+    assert run.final_failure_kinds == (IvrFailureKind.HTTP_STATUS,)
+    if completed:
+        assert run.attempts[0].response["id"] == "response-1"
+        assert run.attempts[0].failure_kinds == (IvrFailureKind.REQUIREMENT_VALIDATION,)
+    assert run.elapsed_seconds >= 0
+    assert "offline-secret" not in run.model_dump_json()
+    assert IvrRun.model_validate_json(run.model_dump_json()) == run
+
+
+@pytest.mark.parametrize("completed", [0, 1])
+def test_sdk_connection_errors_are_durable_without_invented_response_usage(offline_openai_session, completed):
+    import httpx2
+
+    requests = []
+
+    async def respond(request):
+        requests.append(json.loads(request.content))
+        if len(requests) == completed + 1:
+            raise httpx2.ConnectError("Offline connection unavailable.", request=request)
+        return _http_response(request, len(requests), '{"decision":false}')
+
+    async def invoke():
+        session, options = await offline_openai_session(respond)
+        return await run_instruct_ivr(
+            session,
+            InstructIvrSpec(
+                description="Review.",
+                output_format=_Output,
+                requirements=(
+                    req("Ground evidence.", validation_fn=lambda _: ValidationResult(result=False)),
+                ),
+            ),
+            strategy=MultiTurnStrategy(loop_budget=3),
+            model_options=options,
+        )
+
+    run = asyncio.run(invoke())
+    assert len(requests) == len(run.attempts) == completed + 1
+    assert not run.success
+    attempt = run.attempts[-1]
+    assert attempt.transport_error.error_type == "APIConnectionError"
+    assert attempt.transport_error.status_code is None
+    assert attempt.transport_error.request_id is None
+    assert attempt.failure_kinds == (IvrFailureKind.CONNECTION_ERROR,)
+    assert attempt.request == requests[-1]["messages"]
+    assert attempt.response is None and attempt.usage is None
+    assert IvrRun.model_validate_json(run.model_dump_json()) == run
+
+
+def test_programming_errors_after_a_completed_repair_still_raise(offline_openai_session):
+    error = RuntimeError("Invalid validator state after the first repair")
+    validation_calls = 0
+
+    async def respond(request):
+        return _http_response(request, 1, '{"decision":false}')
+
+    def validate(_ctx):
+        nonlocal validation_calls
+        validation_calls += 1
+        if validation_calls == 2:
+            raise error
+        return ValidationResult(result=False)
+
+    async def invoke():
+        session, options = await offline_openai_session(respond)
+        return await run_instruct_ivr(
+            session,
+            InstructIvrSpec(
+                description="Review.",
+                output_format=_Output,
+                requirements=(req("Check.", validation_fn=validate),),
+            ),
+            strategy=MultiTurnStrategy(loop_budget=3),
+            model_options=options,
+        )
+
+    with pytest.raises(RuntimeError) as caught:
+        asyncio.run(invoke())
+    assert caught.value is error
+    assert validation_calls == 2
+
+
+def test_sdk_failure_helper_is_a_durable_failed_run() -> None:
     import httpx2
 
     error = APITimeoutError(request=httpx2.Request("POST", "https://provider.invalid/v1/chat/completions"))
-    run = _http_timeout_ivr_run(
+    run = _api_error_ivr_run(
         SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
         InstructIvrSpec(description="Decide."),
         {"max_tokens": 64},
@@ -662,8 +801,10 @@ def test_http_timeout_helper_is_a_durable_failed_run() -> None:
     assert IvrRun.model_validate_json(run.model_dump_json()) == run
 
 
-def test_http_timeout_during_validation_retains_generated_answer(monkeypatch) -> None:
+@pytest.mark.parametrize("error_kind", ["timeout", "connection", "status", "response_validation"])
+def test_sdk_failure_during_validation_retains_generated_answer(monkeypatch, error_kind) -> None:
     import httpx2
+    from openai import APIConnectionError, APIResponseValidationError, APIStatusError
 
     generation = SimpleNamespace(
         value='{"decision":true}',
@@ -672,7 +813,17 @@ def test_http_timeout_during_validation_retains_generated_answer(monkeypatch) ->
             model_output={"id": "completed-before-validation", "choices": [{"finish_reason": "stop"}]},
         ),
     )
-    error = APITimeoutError(request=httpx2.Request("POST", "https://provider.invalid/v1/chat/completions"))
+    request = httpx2.Request("POST", "https://provider.invalid/v1/chat/completions")
+    if error_kind == "timeout":
+        error = APITimeoutError(request=request)
+    elif error_kind == "connection":
+        error = APIConnectionError(request=request)
+    elif error_kind == "status":
+        error = APIStatusError(
+            "Service unavailable.", response=httpx2.Response(503, request=request), body={}
+        )
+    else:
+        error = APIResponseValidationError(response=httpx2.Response(200, request=request), body={})
 
     def fail_validation(_ctx):
         raise error
@@ -702,7 +853,9 @@ def test_http_timeout_during_validation_retains_generated_answer(monkeypatch) ->
     assert run.attempts[0].request == generation._generate_log.prompt
     assert run.attempts[0].response == generation._generate_log.model_output
     assert run.attempts[0].requirements[0].passed
-    assert "APITimeoutError" in run.failure_reason
+    assert type(error).__name__ in run.failure_reason
+    assert run.attempts[0].transport_error.error_type == type(error).__name__
+    assert run.attempts[0].transport_error.message == str(error)
     assert IvrRun.model_validate_json(run.model_dump_json()) == run
 
 

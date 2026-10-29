@@ -17,6 +17,7 @@ coverage.xml
 .env*
 !.env.example
 local/
+.local/
 .claude/
 
 # Local project presentation artifacts
@@ -29,6 +30,7 @@ docs/.obsidian/**
 # directories only and would leave the link itself untracked-but-visible.
 data
 run-artifact.jsonl
+*.json.run/
 run-validation/
 evaluation-result/
 evaluations/results/*/documents/

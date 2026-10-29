@@ -9,7 +9,7 @@ from pathlib import Path
 
 from evaluations.grow_leaves import render_grow_leaves, score_grow_leaves
 from evaluations.grow_roots import render_grow_roots, score_grow_roots
-from evaluations.llm_usage import render_llm_usage, summarize_llm_usage
+from evaluations.llm_usage import render_llm_usage, summarize_llm_usage, write_llm_usage_run
 from evaluations.validate_all_citation_content import (
     render_validate_all_citation_content,
     score_validate_all_citation_content,
@@ -97,6 +97,7 @@ def score_run(run_dir: Path, workflows: tuple[str, ...] | None = None) -> dict[s
         report += "\n" + render_llm_usage(workflow_usage)
         (run_dir / f"{workflow}.md").write_text(report, encoding="utf-8")
         rendered[workflow] = report
+    write_llm_usage_run(run_dir, usage)
     return rendered
 
 
