@@ -31,3 +31,12 @@ run-validation/
 evaluation-result/
 
 /experiments/
+
+evaluations/results/
+
+paper/
+
+.local/
+
+.playwright*
+
