@@ -171,23 +171,28 @@ With usable pagination, the page judgment may be true, false, or null; null mean
 placement remains uncertain. Content support and page placement are independent:
 a passage on the correct page may contradict the filing's attributed claim.
 A range needs the relevant material somewhere within it, not on every page.
-Recovered pages are known locations, not an exhaustive list. Finding a passage
-elsewhere alone does not establish a wrong written target.
+Recovered pages are known locations, not an exhaustive list. The model selects
+representative evidence for the attributed use; the program compares its
+recovered location with the written target independently of the content result.
 
 Mellea validates the output schema and cross-field invariants, then grounds each
-quote within its named source page or pages using shared whitespace relaxation
+quote throughout its supplied opinion excerpt using shared whitespace relaxation
 and 95% edit-distance matching. A response may contain at most three independent
 quotes, each requested as one representative sentence or short fragment. They
 need not be adjacent. Every quote is checked separately, with its own opinion
-and page references. Detailed explanation belongs in `reason`. Before any
+reference. It does not supply page indices, printed pages, or `correct_page`.
+Detailed explanation belongs in `reason`. Before any
 grounding, all quotes are checked against a 1,200-character per-item limit;
 oversized responses enter the normal repair loop with feedback to focus on one
 or two sentences. The hard limit measures characters, avoiding unreliable
 sentence splitting around legal abbreviations. It applies to new reviews, not
-to loading saved documents. Recovered locations come from those grounded
-page references. Quotes may span adjacent pages. Footnote identification remains
-a model assessment; grounding verifies the containing page, and a correct-page
-claim with a written footnote must name that footnote. Failed requirements
+to loading saved documents. Recovered locations come from the grounded spans
+and the retained pagination index. Quotes may span adjacent pages; selected-page
+review cannot ground across missing source excerpts. Repeated passages prefer
+the written target. Footnote identification remains a model assessment; a written
+footnote with an unknown quoted footnote location leaves placement uncertain.
+Unknown pagination likewise leaves the page assessment null without discarding
+grounded content evidence. Failed requirements
 enter the ordinary repair loop and remain in the saved IVR trace. The
 response limit and HTTP request timeout come from each substage's profile in `.env`;
 8,000 tokens and 300 seconds are configuration examples, not fixed behavior.

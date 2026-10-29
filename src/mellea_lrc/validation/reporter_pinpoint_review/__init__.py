@@ -29,7 +29,7 @@ async def review_citation(
         )
         if outcome.decision is not None and outcome.failure_reason is not None:
             raise ValueError("Pinpoint reviewer returned both a decision and failure")
-        # IVR has already grounded each quote within the page it named. Retain
+        # IVR has already grounded each quote and recovered its source pages. Retain
         # that exact location instead of finding another repeated occurrence.
         accepted = (
             outcome.passages
