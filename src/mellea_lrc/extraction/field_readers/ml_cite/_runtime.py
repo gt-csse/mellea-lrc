@@ -231,7 +231,8 @@ def decode_outputs(
             first, last = best_ordered_pair(start, end)
         left, right = trim_span(context, example.offsets[first][0], example.offsets[last][1])
         span = {"start": left, "end": right, "quote": context[left:right]} if left < right else None
-        predictions[field] = FieldPrediction(True, span, rescanned)
+        # A positive presence head can select only trimmable punctuation.
+        predictions[field] = FieldPrediction(span is not None, span, rescanned)
     return predictions
 
 
