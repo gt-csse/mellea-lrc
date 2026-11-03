@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from mellea_lrc.model.citations.fields import court as court_fields
 from mellea_lrc.model.citations.fields.court import Court, CourtField
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 @pytest.mark.parametrize(

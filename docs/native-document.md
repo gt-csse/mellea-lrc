@@ -1,6 +1,6 @@
 # Native source, citation fields, and histories
 
-The native models retain source metadata, preprocessed text, exact character spans, and typed citation-field readings. Court, full reporter-locator, and pinpoint fields extend the existing case-name, date, and docket fields. These models serialize directly through Pydantic. Existing pipelines remain unchanged.
+The native models retain source metadata, preprocessed text, exact character spans, and typed citation-field readings. Court, full reporter-locator, and pinpoint fields extend the existing case-name, date, and docket fields. These models serialize directly through Pydantic and underpin the native `Document` used by extraction and citation-checking workflows.
 
 ```python
 from mellea_lrc.model import PreprocessedDocument, PreprocessingMetadata, SourceMetadata, Span
@@ -79,110 +79,6 @@ Quoted readings, inferred courts, and explicit absence decisions remain distinct
 
 Docket citations additionally retain entry readings and support rereading the number within the same written locator. Loading checks node ownership, history order, and each locator's fixed source site. `validate_source()` checks every historical field quote against the owning text, including readings superseded by corrections or absence.
 
-## Document collections and replayable checkpoints
+The native `Document` also retains citation occurrences, root relationships, local decision nodes, and append-only field and judgment histories. Corrections append new readings linked to their producing node, preserving earlier source quotes and decisions. Full reporter and docket citations and the supported short forms share this representation.
 
-`Document.from_preprocessed()` carries the source text and its provenance into an ordered collection of full citations. `add_citation()` and `replace_citation()` return new documents. The collection checks citation IDs, source order, every historical quote, and append-only decision and reading histories. New readings belong to new decision nodes.
-
-`complete_substage()` records an atomic completion event, including a run that made no citation changes. `get_substage()` reconstructs the citation collection and field histories at that boundary. Later corrections remain available in the current document, while earlier checkpoints retain their original readings after a JSON round trip.
-
-```python
-from mellea_lrc.model import Document
-
-document = Document.from_preprocessed(
-    PreprocessedDocument(
-        text=text,
-        source_metadata=SourceMetadata(path="filing.txt"),
-        preprocessing_metadata=PreprocessingMetadata(),
-    )
-)
-discovered = document.add_citation(citation).complete_substage("discover_locators")
-read = discovered.replace_citation(initial).complete_substage("read_fields")
-reviewed = read.replace_citation(corrected).complete_substage("review_identity")
-finished = reviewed.complete_substage("unchanged_review")
-
-restored = Document.model_validate_json(finished.model_dump_json())
-assert restored == finished
-assert restored.get_substage("discover_locators") == discovered
-assert restored.get_substage("read_fields") == read
-assert restored.get_substage("review_identity") == reviewed
-assert restored.get_substage("unchanged_review") == finished
-assert restored.get_substage("discover_locators").citations[0].pin_cite is None
-assert restored.substage_runs == ("discover_locators", "read_fields", "review_identity", "unchanged_review")
-```
-
-A document commits one pending substage at a time. Completed substages remain closed, and checkpoint loading checks that citation decisions follow the recorded event order.
-
-## Native locator discovery
-
-`find_full_reporter_locators()` and `find_docket_locators()` are exported from `mellea_lrc.extraction`. Each accepts a native `Document` and returns a new document with full citation occurrences in source order. Quotes and character spans refer to the unchanged preprocessed text, and repeated locators remain separate occurrences.
-
-Reporter discovery uses the shared reporter reader. Docket discovery reads explicitly labelled federal CM/ECF numbers, such as `Case No. 1:24-cv-00123`; it preserves the number's spelling. Discovery reads only the locator. Case names, courts, dates, pinpoints, and docket entries remain unread, and no root identity is assigned.
-
-```python
-from mellea_lrc.extraction import find_docket_locators, find_full_reporter_locators
-from mellea_lrc.model import (
-    Document,
-    PreprocessedDocument,
-    PreprocessingMetadata,
-    SourceMetadata,
-)
-
-document = Document.from_preprocessed(
-    PreprocessedDocument(
-        text="Case No. 1:24-cv-00123, 556 U.S. 662.",
-        source_metadata=SourceMetadata(path="filing.txt"),
-        preprocessing_metadata=PreprocessingMetadata(),
-    )
-)
-reporters = find_full_reporter_locators(document)
-discovered = find_docket_locators(reporters)
-
-assert [citation.locator[0].quote for citation in discovered.citations] == [
-    "Case No. 1:24-cv-00123",
-    "556 U.S. 662",
-]
-assert all(citation.case_name == citation.court == citation.date == () for citation in discovered.citations)
-assert all(citation.pin_cite is None for citation in discovered.citations)
-
-reporter_substage = "grow_roots.discover_root_locators.find_full_reporter_locators"
-docket_substage = "grow_roots.discover_root_locators.find_docket_locators"
-restored = Document.model_validate_json(discovered.model_dump_json())
-assert restored.substage_runs == (reporter_substage, docket_substage)
-assert restored.get_substage(reporter_substage) == reporters
-assert restored.get_substage(docket_substage) == discovered
-```
-
-Each call commits its named substage even when it finds no locators. A completed substage cannot run again. These native discovery functions are separate from the existing `extract()` API described in [Extraction](Extraction.md).
-
-## Colocations and source windows
-
-`resolve_colocations()` gives adjacent full locators a shared parsing context, separate from case identity. Group assignments append to each citation's history; `document.colocations` derives the current groups. The substage uses the conservative `stable()` rules and saves a replayable checkpoint.
-
-`before()` and `after()` return a text window and its source offset. Every member uses the group's outer edges, bounded by the nearest other full locator and the requested character limit.
-
-```python
-from mellea_lrc.config.extraction import stable
-from mellea_lrc.extraction import find_full_reporter_locators, resolve_colocations
-from mellea_lrc.model import Document, PreprocessedDocument, PreprocessingMetadata, SourceMetadata
-from mellea_lrc.model.citation_windows import after, before
-
-document = Document.from_preprocessed(
-    PreprocessedDocument(
-        text="Smith v. Jones, 347 U.S. 483, 74 S. Ct. 686 (1954).",
-        source_metadata=SourceMetadata(path="filing.txt"),
-        preprocessing_metadata=PreprocessingMetadata(),
-    )
-)
-discovered = find_full_reporter_locators(document)
-grouped = resolve_colocations(discovered, rules=stable())
-first, second = grouped.citations
-
-assert grouped.colocations[0].citation_ids == (first.id, second.id)
-assert before(grouped, second, 160) == ("Smith v. Jones, ", 0)
-assert after(grouped, first, 120)[0] == " (1954)."
-restored = Document.model_validate_json(grouped.model_dump_json())
-assert restored.get_substage("grow_roots.read_root_fields.resolve_colocations") == grouped
-assert restored.get_substage("grow_roots.discover_root_locators.find_full_reporter_locators") == discovered
-```
-
-Contextual field reading, root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
+Recorded workflow, stage, and substage boundaries support checkpoint reconstruction and resumption. The `grow_roots`, `validate_roots_citation_identity`, `grow_leaves`, and `validate_all_citation_content` workflows operate on this shared document model. See [Extraction](Extraction.md) and [Validation](Validation.md) for the processing APIs and their evidence flow.

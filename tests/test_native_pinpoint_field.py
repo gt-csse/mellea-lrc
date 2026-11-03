@@ -8,7 +8,7 @@ from mellea_lrc.model.citations.fields.pin_cite import (
     PinCiteKind,
     PinCiteTarget,
 )
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 def read(quote):

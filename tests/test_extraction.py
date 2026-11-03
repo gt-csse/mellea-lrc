@@ -599,9 +599,14 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
             Document.model_validate(tampered)
 
     valid_but_unquoted = document.model_dump(mode="json")
-    valid_but_unquoted["citations"][0]["case_name"][-1]["quote"] = "Smith  v. Jones"
+    valid_but_unquoted["citations"][0]["case_name"][-1]["quote"] = "Smith\tv. Jones"
     with pytest.raises(ValueError, match="source span"):
         Document.model_validate(valid_but_unquoted)
+
+    mismatched_length = document.model_dump(mode="json")
+    mismatched_length["citations"][0]["case_name"][-1]["quote"] = "Smith  v. Jones"
+    with pytest.raises(ValueError, match="span length does not match its quote"):
+        Document.model_validate(mismatched_length)
 
     tampered_span = document.model_dump(mode="json")
     tampered_span["citations"][0]["case_name"][-1]["span"] = {"start": 1, "end": len("Smith v. Jones") + 1}
