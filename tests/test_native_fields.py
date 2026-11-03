@@ -12,7 +12,7 @@ from mellea_lrc.model.citations.fields import (
     DocketEntryField,
     FullDocketLocator,
 )
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 def quoted_span(source: str, quote: str) -> Span:
@@ -127,6 +127,15 @@ def test_field_rejects_forged_normalization_and_inconsistent_failure_storage():
     data["normalizable"] = False
     data["normalization_error"] = "Cannot parse"
     with pytest.raises(ValidationError, match="needs an error and no value"):
+        DateField.model_validate(data)
+
+
+@pytest.mark.parametrize("span", [Span(0, 3), Span(0, 5)])
+def test_loading_rejects_a_span_that_disagrees_with_the_saved_quote(span):
+    field = DateField.from_source("2024", Span(0, 4), node_id="read-date")
+    data = field.model_dump()
+    data["span"] = {"start": span.start, "end": span.end}
+    with pytest.raises(ValidationError, match="span length does not match its quote"):
         DateField.model_validate(data)
 
 

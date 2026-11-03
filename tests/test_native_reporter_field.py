@@ -5,8 +5,8 @@ from eyecite.models import Reporter
 from pydantic import ValidationError
 
 from mellea_lrc.model.citations.fields.reporter import FullReporterLocator
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.reporters import full_reporter_readings
+from mellea_lrc.parsing.span import Span
 
 
 @pytest.mark.parametrize(

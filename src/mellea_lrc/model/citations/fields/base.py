@@ -91,7 +91,11 @@ class CitationField(BaseModel, Generic[T]):
             raise ValueError("Quote and span must be present together")
         if self.quote is not None and not self.quote.strip():
             raise ValueError("Field quote is blank")
-        if self.quote is not None and self.span is not None and self.span.end - self.span.start != len(self.quote):
+        if (
+            self.quote is not None
+            and self.span is not None
+            and self.span.end - self.span.start != len(self.quote)
+        ):
             raise ValueError("Field span length does not match its quote")
         return self
 

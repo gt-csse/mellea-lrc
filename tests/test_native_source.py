@@ -102,12 +102,55 @@ def test_native_source_rejects_empty_text_and_unknown_document_attributes():
 
 
 def test_source_and_field_imports_do_not_import_runtime_stages():
+    script = """
+import sys
+from mellea_lrc.model import PreprocessedDocument
+from mellea_lrc.model.citations.fields import CaseNameField
+
+# Citation histories retain provider response schemas as durable evidence.
+allowed_provider_modules = {
+    "mellea_lrc.providers",
+    "mellea_lrc.providers.courtlistener",
+    "mellea_lrc.providers.courtlistener.models",
+}
+runtime_prefixes = (
+    "mellea_lrc.extraction",
+    "mellea_lrc.validation",
+    "mellea_lrc.llm",
+    "mellea_lrc.workflows",
+)
+unexpected = [
+    name for name in sys.modules
+    if name.startswith(runtime_prefixes)
+    or (name.startswith("mellea_lrc.providers") and name not in allowed_provider_modules)
+]
+assert not unexpected, unexpected
+"""
     result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import sys; from mellea_lrc.model import PreprocessedDocument; from mellea_lrc.model.citations.fields import CaseNameField; assert not any(name.startswith(('mellea_lrc.extraction', 'mellea_lrc.validation', 'mellea_lrc.providers', 'mellea_lrc.llm', 'mellea_lrc.workflows')) for name in sys.modules)",
-        ],
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_courtlistener_public_client_exports_remain_available_on_demand():
+    script = """
+import sys
+import mellea_lrc.providers.courtlistener as courtlistener
+
+assert "mellea_lrc.providers.courtlistener.client" not in sys.modules
+from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerConfig, CourtListenerError
+from mellea_lrc.providers.courtlistener import client
+
+assert CourtListenerClient is client.CourtListenerClient
+assert CourtListenerConfig is client.CourtListenerConfig
+assert CourtListenerError is client.CourtListenerError
+assert courtlistener.CourtListenerClient is CourtListenerClient
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
         check=False,
         capture_output=True,
         text=True,
