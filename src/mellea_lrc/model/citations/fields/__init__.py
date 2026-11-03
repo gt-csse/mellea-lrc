@@ -1,6 +1,6 @@
 """Typed source-grounded citation fields and explicit normalization outcomes."""
 
-from mellea_lrc.model.citations.fields.base import CitationField
+from mellea_lrc.model.citations.fields.base import CitationField, NotStatedField, current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameField, CaseNameKind
 from mellea_lrc.model.citations.fields.court import Court, CourtField
 from mellea_lrc.model.citations.fields.date import CitationDate, DateField
@@ -21,9 +21,11 @@ __all__ = [
     "DocketLocatorValue",
     "FullDocketLocator",
     "FullReporterLocator",
+    "NotStatedField",
     "PinCiteField",
     "PinCiteKind",
     "PinCiteTarget",
     "PinCiteValue",
     "ReporterLocatorValue",
+    "current_reading",
 ]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Generic, Self, TypeVar
+from typing import Generic, Literal, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -100,3 +100,37 @@ class CitationField(BaseModel, Generic[T]):
         """Recheck exact source grounding after loading a document."""
         if self.span is not None and source_quote(source, self.span) != self.quote:
             raise ValueError("Field quote does not match its source span")
+
+
+class NotStatedField(BaseModel):
+    """An explicit absence reading that preserves every earlier field value."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    node_id: str
+    kind: Literal["not_stated"] = "not_stated"
+
+    @property
+    def quote(self) -> None:
+        return None
+
+    @property
+    def span(self) -> None:
+        return None
+
+    @property
+    def normalizable(self) -> bool:
+        return False
+
+    def get_normalized(self) -> None:
+        raise ValueError("Field is not stated; no normalized value is available")
+
+
+FieldReading = TypeVar("FieldReading", bound=CitationField)
+
+
+def current_reading(log: tuple[FieldReading | NotStatedField, ...] | None) -> FieldReading | None:
+    """Read the newest field entry; explicit absence hides earlier readings."""
+    if not log or isinstance(log[-1], NotStatedField):
+        return None
+    return log[-1]
