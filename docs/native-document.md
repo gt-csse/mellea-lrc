@@ -1,4 +1,4 @@
-# Native source and citation fields
+# Native source, citation fields, and histories
 
 The native models retain source metadata, preprocessed text, exact character spans, and typed citation-field readings. Court, full reporter-locator, and pinpoint fields extend the existing case-name, date, and docket fields. These models serialize directly through Pydantic. Existing pipelines remain unchanged.
 
@@ -45,4 +45,38 @@ assert pin.get_normalized()[0].kind is PinCiteKind.STAR
 assert (pin.get_normalized()[0].first, pin.get_normalized()[0].last) == (10, 12)
 ```
 
-Citation collections, node ownership and histories, root graphs, checkpoints, stage/workflow definitions, short-form locator fields, and pipeline integration belong to later PRs. No compatibility adapters are introduced.
+## Full citation occurrences and decision histories
+
+`FullReporterCitation` and `FullDocketCitation` combine the field types into immutable occurrences. The initial locator belongs to a creation node. Calling `record()` adds a later decision node; named field methods append readings under that node and return a new citation. One decision can update several fields, with at most one reading per field. Every history follows the owning citation's node order.
+
+```python
+from mellea_lrc.model.citations import FullReporterCitation, latest
+
+text = "Alpha v. Beta, 556 U.S. 662 (2009)."
+locator_start = text.index("556 U.S. 662")
+citation = FullReporterCitation.from_locator(
+    citation_id="reporter:1",
+    substage="discover_locators",
+    source=text,
+    span=Span(locator_start, locator_start + len("556 U.S. 662")),
+)
+initial = citation.record("read_fields").with_case_name(text, Span(9, 13))
+corrected = initial.record("review_identity").with_case_name(text, Span(0, 13))
+
+assert initial.get_case_name().as_citation() == "Beta"
+assert corrected.get_case_name().as_citation() == "Alpha v. Beta"
+assert len(corrected.case_name) == 2
+assert corrected.case_name[0] == initial.case_name[0]
+assert corrected.case_name[-1].node_id == corrected.nodes[-1].id
+assert latest(corrected.locator).edition == "U.S."
+
+loaded = FullReporterCitation.model_validate_json(corrected.model_dump_json())
+assert loaded == corrected
+loaded.validate_source(text)
+```
+
+Quoted readings, inferred courts, and explicit absence decisions remain distinct. `with_case_name_not_stated()`, `with_court_not_stated()`, `with_date_not_stated()`, and `with_pin_cite_not_stated()` append a `NotStatedField` without deleting earlier quotes. Empty histories represent unread fields; an unread pinpoint is `None`. `current_reading()` returns the latest quoted or inferred field, or `None` for an unread or explicitly absent field. `latest()` returns its normalized value and raises when the latest quoted reading failed normalization, rather than falling back to an older successful value.
+
+Docket citations additionally retain entry readings and support rereading the number within the same written locator. Loading checks node ownership, history order, and each locator's fixed source site. `validate_source()` checks every historical field quote against the owning text, including readings superseded by corrections or absence.
+
+Document-level citation collections, root graphs, checkpoints, stage/workflow definitions, short-form locator fields, and pipeline integration belong to later PRs. No compatibility adapters are introduced.
