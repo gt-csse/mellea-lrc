@@ -112,4 +112,46 @@ assert restored.substage_runs == ("discover_locators", "read_fields", "review_id
 
 A document commits one pending substage at a time. Completed substages remain closed, and checkpoint loading checks that citation decisions follow the recorded event order.
 
-Root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
+## Native locator discovery
+
+`find_full_reporter_locators()` and `find_docket_locators()` are exported from `mellea_lrc.extraction`. Each accepts a native `Document` and returns a new document with full citation occurrences in source order. Quotes and character spans refer to the unchanged preprocessed text, and repeated locators remain separate occurrences.
+
+Reporter discovery uses the shared reporter reader. Docket discovery reads explicitly labelled federal CM/ECF numbers, such as `Case No. 1:24-cv-00123`; it preserves the number's spelling. Discovery reads only the locator. Case names, courts, dates, pinpoints, and docket entries remain unread, and no root identity is assigned.
+
+```python
+from mellea_lrc.extraction import find_docket_locators, find_full_reporter_locators
+from mellea_lrc.model import (
+    Document,
+    PreprocessedDocument,
+    PreprocessingMetadata,
+    SourceMetadata,
+)
+
+document = Document.from_preprocessed(
+    PreprocessedDocument(
+        text="Case No. 1:24-cv-00123, 556 U.S. 662.",
+        source_metadata=SourceMetadata(path="filing.txt"),
+        preprocessing_metadata=PreprocessingMetadata(),
+    )
+)
+reporters = find_full_reporter_locators(document)
+discovered = find_docket_locators(reporters)
+
+assert [citation.locator[0].quote for citation in discovered.citations] == [
+    "Case No. 1:24-cv-00123",
+    "556 U.S. 662",
+]
+assert all(citation.case_name == citation.court == citation.date == () for citation in discovered.citations)
+assert all(citation.pin_cite is None for citation in discovered.citations)
+
+reporter_substage = "grow_roots.discover_root_locators.find_full_reporter_locators"
+docket_substage = "grow_roots.discover_root_locators.find_docket_locators"
+restored = Document.model_validate_json(discovered.model_dump_json())
+assert restored.substage_runs == (reporter_substage, docket_substage)
+assert restored.get_substage(reporter_substage) == reporters
+assert restored.get_substage(docket_substage) == discovered
+```
+
+Each call commits its named substage even when it finds no locators. A completed substage cannot run again. These native discovery functions are separate from the existing `extract()` API described in [Extraction](Extraction.md).
+
+Contextual field reading, root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
