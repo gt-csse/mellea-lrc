@@ -1,0 +1,121 @@
+"""Values returned by CourtListener's citation lookup, docket, and search APIs."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class _CourtListenerPayload(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore", populate_by_name=True)
+
+    # Keep the upstream object for fields a later validation substage may need.
+    raw_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_raw_json(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "raw_json" not in value:
+            return {**value, "raw_json": dict(value)}
+        return value
+
+
+class CourtListenerClusterCitation(BaseModel):
+    """A reporter citation listed on one opinion cluster."""
+
+    model_config = ConfigDict(strict=True, extra="ignore")
+
+    volume: str
+    reporter: str
+    page: str
+
+    @field_validator("volume", "page", mode="before")
+    @classmethod
+    def stringify_number(cls, value: Any) -> Any:
+        # CourtListener serializes citation volume as an integer in its API
+        # examples; keep the caller-facing locator components as strings.
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
+
+
+class CourtListenerCluster(_CourtListenerPayload):
+    """One candidate opinion cluster for a reporter citation."""
+
+    id: str | None = Field(default=None, validation_alias=AliasChoices("id", "clusterId", "cluster_id"))
+    case_name: str | None = Field(default=None, validation_alias=AliasChoices("case_name", "caseName"))
+    case_name_full: str | None = Field(
+        default=None, validation_alias=AliasChoices("case_name_full", "caseNameFull")
+    )
+    date_filed: str | None = Field(default=None, validation_alias=AliasChoices("date_filed", "dateFiled"))
+    court: str | None = None
+    court_id: str | None = Field(default=None, validation_alias=AliasChoices("court_id", "courtId"))
+    docket_id: str | None = Field(default=None, validation_alias=AliasChoices("docket_id", "docketId"))
+    citations: list[CourtListenerClusterCitation] = Field(default_factory=list)
+
+    @field_validator("id", "docket_id", mode="before")
+    @classmethod
+    def stringify_identifier(cls, value: Any) -> Any:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
+
+
+class CourtListenerDocket(_CourtListenerPayload):
+    """The docket that identifies the court for an opinion cluster."""
+
+    id: str
+    court_id: str | None = None
+    court: str | None = None
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def stringify_identifier(cls, value: Any) -> Any:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
+
+
+class CourtListenerCitationLookup(_CourtListenerPayload):
+    """The single result returned for one exact reporter citation request."""
+
+    citation: str
+    status: int
+    clusters: list[CourtListenerCluster] = Field(default_factory=list)
+    error_message: str | None = ""
+
+
+class CourtListenerSearchResult(_CourtListenerPayload):
+    """One docket or opinion search hit, with the full upstream object retained."""
+
+    id: str | None = None
+    docket_id: str | None = Field(default=None, validation_alias=AliasChoices("docket_id", "docketId"))
+    cluster_id: str | None = Field(default=None, validation_alias=AliasChoices("cluster_id", "clusterId"))
+    docket_number: str | None = Field(
+        default=None, validation_alias=AliasChoices("docketNumber", "docket_number")
+    )
+    case_name: str | None = Field(default=None, validation_alias=AliasChoices("caseName", "case_name"))
+    case_name_full: str | None = Field(
+        default=None, validation_alias=AliasChoices("caseNameFull", "case_name_full")
+    )
+    court_id: str | None = Field(default=None, validation_alias=AliasChoices("court_id", "courtId"))
+    court: str | None = None
+    date_filed: str | None = Field(default=None, validation_alias=AliasChoices("dateFiled", "date_filed"))
+    absolute_url: str | None = None
+
+    @field_validator("id", "docket_id", "cluster_id", mode="before")
+    @classmethod
+    def stringify_identifier(cls, value: Any) -> Any:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
+
+
+class CourtListenerSearchPage(_CourtListenerPayload):
+    """One page of search hits and its unmodified pagination links."""
+
+    count: int
+    next: str | None
+    previous: str | None
+    results: list[CourtListenerSearchResult]

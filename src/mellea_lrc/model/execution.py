@@ -250,5 +250,5 @@ class CheckpointRun(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", revalidate_instances="always")
 
-    kind: Literal["substage", "stage"]
-    name: str = Field(min_length=1)
+    kind: Literal["substage", "stage"] = "substage"
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){0,2}$")

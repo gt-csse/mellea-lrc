@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Self
 
-from pydantic import model_validator
+from pydantic import TypeAdapter, field_validator, model_validator
 
 from mellea_lrc.model.citations import (
+    Citation,
     CitationVariant,
     FullCitation,
     FullCitationVariant,
@@ -23,6 +25,8 @@ from mellea_lrc.model.execution import CheckpointRun, get_stage_definition, stag
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 from mellea_lrc.model.site_review import SiteReview
 from mellea_lrc.parsing.span import is_within
+
+_CITATION = TypeAdapter(CitationVariant)
 
 
 def _colocations(
@@ -118,9 +122,11 @@ class Document(PreprocessedDocument):
         return _colocations(self.short_reporters)
 
     def add_citation(self, citation: CitationVariant) -> Self:
+        citation = _CITATION.validate_python(citation.model_dump(mode="python"))
         if any(existing.id == citation.id for existing in self.citations):
             raise ValueError(f"Citation already exists: {citation.id}")
-        self._ensure_substage_open(citation.nodes[0].substage)
+        for node in citation.nodes:
+            self._ensure_substage_open(node.substage)
         creation_span = citation._through_node_count(1).site_span
         tags = tuple(
             CitationTag(
@@ -146,6 +152,7 @@ class Document(PreprocessedDocument):
         )
 
     def replace_citation(self, citation: CitationVariant) -> Self:
+        citation = _CITATION.validate_python(citation.model_dump(mode="python"))
         original = next((item for item in self.citations if item.id == citation.id), None)
         if original is None:
             raise KeyError(f"Unknown citation: {citation.id}")
@@ -245,6 +252,17 @@ class Document(PreprocessedDocument):
                 "runs": runs,
             }
         )
+
+    @field_validator("citations", mode="before")
+    @classmethod
+    def _revalidate_citation_instances(cls, value: object) -> object:
+        """Recheck nested histories even for copied or constructed citation instances."""
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray, Mapping)):
+            return tuple(
+                citation.model_dump(mode="python") if isinstance(citation, Citation) else citation
+                for citation in value
+            )
+        return value
 
     @model_validator(mode="after")
     def _validate_runs(self) -> Self:

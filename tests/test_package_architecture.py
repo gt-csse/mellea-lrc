@@ -208,9 +208,23 @@ def test_provider_clients_do_not_depend_on_citation_stages_or_workflows() -> Non
             )
             for module in modules:
                 if module.startswith("mellea_lrc."):
+                    payload_reexport = (
+                        file == directory / "courtlistener" / "models.py"
+                        and module == "mellea_lrc.model.courtlistener"
+                    )
                     assert (
-                        module.startswith("mellea_lrc.providers.") or module == "mellea_lrc.configuration"
+                        module.startswith("mellea_lrc.providers.")
+                        or module == "mellea_lrc.configuration"
+                        or payload_reexport
                     ), (file, module)
+
+
+def test_courtlistener_payload_reexports_preserve_public_type_identity() -> None:
+    from mellea_lrc.model import courtlistener as payloads
+    from mellea_lrc.providers.courtlistener import models as public
+
+    for name in public.__all__:
+        assert getattr(public, name) is getattr(payloads, name)
 
 
 def test_source_readers_and_durable_models_do_not_import_stages() -> None:
