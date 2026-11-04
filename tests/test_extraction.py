@@ -787,7 +787,14 @@ def test_native_reload_rejects_histories_that_cannot_restore_prior_stages() -> N
     first, second, docket = document.citations
 
     future_root = document.model_dump(mode="python")
-    future_root["citations"][0]["root_id"] = [{"value": docket.id, "node_id": first.nodes[0].id}]
+    assignment_node = {"id": f"{first.id}:node:1", "substage": "early_assignment"}
+    future_root["citations"][0]["nodes"] = (*future_root["citations"][0]["nodes"], assignment_node)
+    future_root["citations"][0]["root_id"] = [{"value": docket.id, "node_id": assignment_node["id"]}]
+    future_root["runs"] = (
+        *future_root["runs"][:1],
+        {"kind": "substage", "name": "early_assignment"},
+        *future_root["runs"][1:],
+    )
     with pytest.raises(ValueError, match="created after"):
         Document.model_validate(future_root)
 

@@ -6,16 +6,16 @@ from datetime import date
 
 import pytest
 
-from mellea_lrc.providers.govinfo import GovInfoSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.parsing.span import Span
+from mellea_lrc.providers.govinfo import GovInfoSearchPage
+from mellea_lrc.validation.body_search import _govinfo as govinfo_module
 from mellea_lrc.validation.body_search.retrieve_govinfo_intended_case_opinions import (
     SUBSTAGE,
     retrieve_govinfo_intended_case_opinions,
 )
-from mellea_lrc.validation.body_search import _govinfo as govinfo_module
 
 SOURCE = "Acme v. Smith, 30 F.3d 100 (2d Cir. 1994)."
 PACKAGE = "USCOURTS-nyd-1_20-cv-1"
@@ -25,14 +25,17 @@ def _document(*, case_name: bool = True, routed: bool = True) -> Document:
     locator = "30 F.3d 100"
     start = SOURCE.index(locator)
     root = FullReporterCitation.from_locator(
-        citation_id="root:1", substage="01_extract", source=SOURCE, span=Span(start, start + len(locator))
+        citation_id="root:1",
+        substage="stage_01_extract",
+        source=SOURCE,
+        span=Span(start, start + len(locator)),
     )
-    document = Document.from_source(SOURCE).add_citation(root).complete_substage("01_extract")
-    root = root.record("02_roots").with_root(root.id)
-    document = document.replace_citation(root).complete_substage("02_roots")
+    document = Document.from_source(SOURCE).add_citation(root).complete_substage("stage_01_extract")
+    root = root.record("stage_02_roots").with_root(root.id)
+    document = document.replace_citation(root).complete_substage("stage_02_roots")
     if case_name:
-        root = root.record("03_case_name").with_case_name(SOURCE, Span(0, len("Acme v. Smith")))
-        document = document.replace_citation(root).complete_substage("03_case_name")
+        root = root.record("stage_03_case_name").with_case_name(SOURCE, Span(0, len("Acme v. Smith")))
+        document = document.replace_citation(root).complete_substage("stage_03_case_name")
     if routed:
         root = root.record(
             "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"

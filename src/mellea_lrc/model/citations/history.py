@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from mellea_lrc.model.citations.fields import CitationField, NotStatedField
 
@@ -35,5 +35,5 @@ class Node(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    id: str
-    substage: str
+    id: str = Field(min_length=1, pattern=r"\S")
+    substage: str = Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){0,2}$")

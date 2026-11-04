@@ -1751,10 +1751,10 @@ def test_stage23_evaluation_merges_verdict_counts_and_ignores_later_routes(tmp_p
         next_substage="validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions",
     )
     recorded = next(root for root in first.roots if isinstance(root, FullDocketCitation)).record(
-        "24_followup"
+        "stage_24_followup"
     )
     first_later = first.replace_citation(recorded.with_route("unrelated_followup")).complete_substage(
-        "24_followup"
+        "stage_24_followup"
     )
     first_score = evaluation.score_review_locator_bodies_llm(first)
     assert evaluation.score_review_locator_bodies_llm(first_later) == first_score

@@ -215,8 +215,8 @@ def test_only_current_correct_identity_qualifies_even_when_a_cluster_is_selected
         citation = citation.record(LOOKUP_SUBSTAGE).with_reporter_exact_lookup(lookup)
         document = document.replace_citation(citation).complete_substage(LOOKUP_SUBSTAGE)
     else:
-        citation = document.roots[0].record("38_identity_review").with_identity_judgment(verdict)
-        document = document.replace_citation(citation).complete_substage("38_identity_review")
+        citation = document.roots[0].record("stage_38_identity_review").with_identity_judgment(verdict)
+        document = document.replace_citation(citation).complete_substage("stage_38_identity_review")
     document = document.complete_substage(SUBSTAGE)
 
     score = evaluation.score_retrieve_reporter_root_opinions(document)
@@ -227,9 +227,11 @@ def test_only_current_correct_identity_qualifies_even_when_a_cluster_is_selected
 def test_body_only_admission_without_original_cluster_does_not_expand_the_ratio():
     document = _document(("20",), None).get_substage(LOOKUP_SUBSTAGE)
     citation = (
-        document.roots[1].record("38_body_review").with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
+        document.roots[1]
+        .record("stage_38_body_review")
+        .with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
     )
-    document = document.replace_citation(citation).complete_substage("38_body_review")
+    document = document.replace_citation(citation).complete_substage("stage_38_body_review")
     citation = _with_opinions(document.roots[0], cluster_id="1", bundle=("20",))
     document = document.replace_citation(citation).complete_substage(SUBSTAGE)
 
@@ -267,8 +269,8 @@ def test_selected_cluster_without_saved_retrieval_or_subopinions_is_not_silently
 
 def test_roundtrip_scoring_recovers_stage_39_before_a_later_withdrawal():
     checkpoint = _document(("20",))
-    citation = checkpoint.roots[0].record("40_later").with_root(WITHDRAWN_ROOT_ID)
-    later = checkpoint.replace_citation(citation).complete_substage("40_later")
+    citation = checkpoint.roots[0].record("stage_40_later").with_root(WITHDRAWN_ROOT_ID)
+    later = checkpoint.replace_citation(citation).complete_substage("stage_40_later")
     later = Document.model_validate_json(later.model_dump_json())
 
     assert later.roots == ()
