@@ -15,8 +15,8 @@ from mellea_lrc.model.citations.judgments import (
     validate_field_correction,
     validate_reviewer_case_name,
 )
+from mellea_lrc.model.courtlistener import CourtListenerCitationLookup, CourtListenerDocket
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.providers.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
 
 REPORTER_LOOKUP_CANDIDATE_LIMIT = 20
 

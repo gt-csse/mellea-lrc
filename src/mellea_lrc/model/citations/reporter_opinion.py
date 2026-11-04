@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
+from mellea_lrc.model.courtlistener import CourtListenerCluster
 
 
 def opinion_resource_id(value: str | int, endpoint: str) -> str:
