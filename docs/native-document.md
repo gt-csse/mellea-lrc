@@ -107,9 +107,7 @@ assert restored.get_substage("read_fields") == read
 assert restored.get_substage("review_identity") == reviewed
 assert restored.get_substage("unchanged_review") == finished
 assert restored.get_substage("discover_locators").citations[0].pin_cite is None
-assert restored.substage_runs == (
-    "discover_locators", "read_fields", "review_identity", "unchanged_review"
-)
+assert restored.substage_runs == ("discover_locators", "read_fields", "review_identity", "unchanged_review")
 ```
 
 A document commits one pending substage at a time. Completed substages remain closed, and checkpoint loading checks that citation decisions follow the recorded event order.
