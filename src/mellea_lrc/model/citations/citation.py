@@ -48,6 +48,20 @@ class Citation(BaseModel):
         """Revalidate every immutable update, including ownership and ordering."""
         return type(self).model_validate({**self.model_dump(mode="python"), **logs})
 
+    def _through_node_count(self, count: int) -> Self:
+        """Recover the citation and its readings through a decision boundary."""
+        if not 1 <= count <= len(self.nodes):
+            raise ValueError("Citation cutoff must retain its creation node")
+        nodes = self.nodes[:count]
+        node_ids = {node.id for node in nodes}
+        data = {**self.model_dump(mode="python"), "nodes": nodes}
+        for name, field in type(self).model_fields.items():
+            if name in {"id", "kind", "nodes"}:
+                continue
+            retained = tuple(reading for reading in getattr(self, name) or () if reading.node_id in node_ids)
+            data[name] = retained if retained else field.get_default()
+        return type(self).model_validate(data)
+
     def with_case_name(self, source: str, span: Span, *, normalized: CaseName | None = None) -> Self:
         """Append an exact source quote with deterministic or model normalization."""
         reading = (

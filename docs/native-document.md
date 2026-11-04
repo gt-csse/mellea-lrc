@@ -79,4 +79,37 @@ Quoted readings, inferred courts, and explicit absence decisions remain distinct
 
 Docket citations additionally retain entry readings and support rereading the number within the same written locator. Loading checks node ownership, history order, and each locator's fixed source site. `validate_source()` checks every historical field quote against the owning text, including readings superseded by corrections or absence.
 
-Document-level citation collections, root graphs, checkpoints, stage/workflow definitions, short-form locator fields, and pipeline integration belong to later PRs. No compatibility adapters are introduced.
+## Document collections and replayable checkpoints
+
+`Document.from_preprocessed()` carries the source text and its provenance into an ordered collection of full citations. `add_citation()` and `replace_citation()` return new documents. The collection checks citation IDs, source order, every historical quote, and append-only decision and reading histories. New readings belong to new decision nodes.
+
+`complete_substage()` records an atomic completion event, including a run that made no citation changes. `get_substage()` reconstructs the citation collection and field histories at that boundary. Later corrections remain available in the current document, while earlier checkpoints retain their original readings after a JSON round trip.
+
+```python
+from mellea_lrc.model import Document
+
+document = Document.from_preprocessed(
+    PreprocessedDocument(
+        text=text,
+        source_metadata=SourceMetadata(path="filing.txt"),
+        preprocessing_metadata=PreprocessingMetadata(),
+    )
+)
+discovered = document.add_citation(citation).complete_substage("discover_locators")
+read = discovered.replace_citation(initial).complete_substage("read_fields")
+reviewed = read.replace_citation(corrected).complete_substage("review_identity")
+finished = reviewed.complete_substage("unchanged_review")
+
+restored = Document.model_validate_json(finished.model_dump_json())
+assert restored == finished
+assert restored.get_substage("discover_locators") == discovered
+assert restored.get_substage("read_fields") == read
+assert restored.get_substage("review_identity") == reviewed
+assert restored.get_substage("unchanged_review") == finished
+assert restored.get_substage("discover_locators").citations[0].pin_cite is None
+assert restored.substage_runs == ("discover_locators", "read_fields", "review_identity", "unchanged_review")
+```
+
+A document commits one pending substage at a time. Completed substages remain closed, and checkpoint loading checks that citation decisions follow the recorded event order.
+
+Root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
