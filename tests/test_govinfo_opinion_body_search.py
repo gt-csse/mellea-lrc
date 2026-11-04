@@ -24,16 +24,16 @@ def _document() -> Document:
     source = "Acme v. Smith, 30 F.3d 100 (2d Cir. 1994)."
     start = source.index("30 F.3d 100")
     root = FullReporterCitation.from_locator(
-        citation_id="root:1", substage="01_extract", source=source, span=Span(start, start + 11)
+        citation_id="root:1", substage="stage_01_extract", source=source, span=Span(start, start + 11)
     )
     document = Document(
         source_metadata=SourceMetadata(),
         text=source,
         preprocessing_metadata=PreprocessingMetadata(),
         citations=(root,),
-    ).complete_substage("01_extract")
-    document = document.replace_citation(root.record("02_roots").with_root(root.id))
-    return document.complete_substage("02_roots")
+    ).complete_substage("stage_01_extract")
+    document = document.replace_citation(root.record("stage_02_roots").with_root(root.id))
+    return document.complete_substage("stage_02_roots")
 
 
 def _document_with_case_name() -> Document:
@@ -42,10 +42,10 @@ def _document_with_case_name() -> Document:
     start = source.index("Acme v. Smith")
     recorded = (
         document.roots[0]
-        .record("03_case_name")
+        .record("stage_03_case_name")
         .with_case_name(source, Span(start, start + len("Acme v. Smith")))
     )
-    return document.replace_citation(recorded).complete_substage("03_case_name")
+    return document.replace_citation(recorded).complete_substage("stage_03_case_name")
 
 
 def _pdf(text: str) -> bytes:

@@ -34,7 +34,7 @@ class Citation(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    id: str
+    id: str = Field(min_length=1, pattern=r"\S")
     kind: str
     nodes: tuple[Node, ...]
     tags: tuple[CitationTag, ...] = ()
@@ -363,6 +363,9 @@ class Citation(BaseModel):
         positions = {node.id: index for index, node in enumerate(self.nodes)}
         if len(positions) != len(self.nodes):
             raise ValueError("Duplicate citation node")
+        for index, node in enumerate(self.nodes):
+            if node.id != f"{self.id}:node:{index}":
+                raise ValueError("Decision node ID must belong to its citation and position")
         for name in type(self).model_fields:
             if name in {"id", "kind", "nodes"}:
                 continue
@@ -381,6 +384,13 @@ class Citation(BaseModel):
                     and isinstance(update, (CitationField, NotStatedField, RelationshipUpdate))
                 ):
                     raise ValueError(f"{name} updates are out of order")
+                if (
+                    position == 0
+                    and self.kind in {"reporter", "docket"}
+                    and name != "locator"
+                    and isinstance(update, (CitationField, NotStatedField, RelationshipUpdate))
+                ):
+                    raise ValueError(f"{name} requires a later decision node")
                 previous = position
         if any(
             route.value is not None

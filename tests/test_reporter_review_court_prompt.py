@@ -172,7 +172,7 @@ def _reporter_citation(source: str) -> FullReporterCitation:
     start = source.index(locator)
     return FullReporterCitation.from_locator(
         citation_id="reporter:test",
-        substage="1_full_reporter_locator",
+        substage="stage_1_full_reporter_locator",
         source=source,
         span=Span(start, start + len(locator)),
     )
@@ -202,7 +202,7 @@ def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None
         _reporter_citation(explicit_source)
         .record("grow_roots.read_root_fields.resolve_courts")
         .with_inferred_court("scotus")
-        .record("8_explicit_court")
+        .record("stage_8_explicit_court")
         .with_court(
             explicit_source,
             Span(explicit_source.index("2d Cir."), explicit_source.index("2d Cir.") + len("2d Cir.")),

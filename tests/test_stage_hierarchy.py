@@ -287,7 +287,7 @@ def test_native_reload_rejects_pending_work_inside_completed_group() -> None:
     data = document.model_dump(mode="python")
     data["citations"][0]["nodes"] = (
         *data["citations"][0]["nodes"],
-        {"id": "optional-late-node", "substage": HUNTING},
+        {"id": f"{document.citations[0].id}:node:1", "substage": HUNTING},
     )
     with pytest.raises(ValueError, match="pending substage changes"):
         Document.model_validate(data)
@@ -298,8 +298,8 @@ def test_native_reload_rejects_citation_nodes_moving_backward() -> None:
     data = document.model_dump(mode="python")
     data["citations"][0]["nodes"] = (
         *data["citations"][0]["nodes"],
-        {"id": "manual-node", "substage": "manual_review"},
-        {"id": "backward-node", "substage": DOCKETS},
+        {"id": f"{document.citations[0].id}:node:1", "substage": "manual_review"},
+        {"id": f"{document.citations[0].id}:node:2", "substage": DOCKETS},
     )
     with pytest.raises(ValueError, match="move backward"):
         Document.model_validate(data)
@@ -337,11 +337,13 @@ def test_group_of_noop_substages_does_not_add_nodes_to_existing_citations() -> N
 
 def test_native_reload_rejects_future_root_relationship_across_group_boundary() -> None:
     discovered = _discovered().complete_stage(DISCOVERY)
+    discovered = discovered.replace_citation(discovered.citations[0].record("early_assignment"))
+    discovered = discovered.complete_substage("early_assignment")
     document = discovered.add_citation(_docket("later_discovery", "2:24-cv-00456"))
     document = document.complete_substage("later_discovery")
     data = document.model_dump(mode="python")
     data["citations"][0]["root_id"] = [
-        {"node_id": document.citations[0].nodes[0].id, "value": document.citations[1].id}
+        {"node_id": document.citations[0].nodes[-1].id, "value": document.citations[1].id}
     ]
     with pytest.raises(ValueError, match="created after its assignment"):
         Document.model_validate(data)

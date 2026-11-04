@@ -33,7 +33,6 @@ __all__ = [
     "PinCiteTarget",
     "PinCiteValue",
     "ReporterLocatorValue",
-    "current_reading",
     "ShortReporterLocator",
     "ShortReporterLocatorValue",
     "current_reading",

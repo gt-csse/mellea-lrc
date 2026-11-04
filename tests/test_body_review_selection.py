@@ -50,7 +50,7 @@ def test_source_copies_cannot_exhaust_review_budget_or_renumber_saved_evidence(a
         number_span=Span(start, start + len("05-4206")),
     )
     document = Document.from_source(source).add_citation(root).complete_substage("sites")
-    root = root.record("body-search")
+    root = root.record("body_search")
     if anchor_kind == "locator":
         root = root.with_body_search(
             BodySearch(node_id=root.nodes[-1].id, source=provider, retrospective_date=None, evidence=evidence)
@@ -67,7 +67,7 @@ def test_source_copies_cannot_exhaust_review_budget_or_renumber_saved_evidence(a
             )
         )
         context_type = IntendedCaseContext
-    document = document.replace_citation(root).complete_substage("body-search")
+    document = document.replace_citation(root).complete_substage("body_search")
     context = context_type.from_document(document, root)
 
     assert context.evidence == ((provider, 6, independent[0]),)

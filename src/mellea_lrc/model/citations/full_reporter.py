@@ -196,6 +196,9 @@ class FullReporterCitation(FullCitation):
     def _validate_locator(self) -> Self:
         if not self.locator or self.locator[0].node_id != self.nodes[0].id:
             raise ValueError("Reporter citation needs a source-spanned locator")
+        initial = self.locator[0]
+        if any(reading.span != initial.span or reading.quote != initial.quote for reading in self.locator):
+            raise ValueError("Reporter locator history must retain its original source site")
         lookup = self.reporter_exact_lookup
         docket = self.reporter_exact_docket
         positions = {node.id: index for index, node in enumerate(self.nodes)}

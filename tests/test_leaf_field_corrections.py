@@ -63,9 +63,9 @@ def rooted(tail, *, validate=True):
         text=text, source_metadata=SourceMetadata(), preprocessing_metadata=PreprocessingMetadata()
     )
     root = FullReporterCitation.from_locator(
-        citation_id="root", substage="1_reporter_locator", source=text, span=span(text, "347 U.S. 483")
+        citation_id="root", substage="stage_1_reporter_locator", source=text, span=span(text, "347 U.S. 483")
     )
-    document = document.add_citation(root).complete_substage("1_reporter_locator")
+    document = document.add_citation(root).complete_substage("stage_1_reporter_locator")
     root = (
         root.record("grow_roots.form_root_groups.form_roots")
         .with_root(root.id)
@@ -73,7 +73,7 @@ def rooted(tail, *, validate=True):
     )
     document = document.replace_citation(root).complete_substage("grow_roots.form_root_groups.form_roots")
     if validate:
-        root = root.record("11_reporter_lookup")
+        root = root.record("stage_11_reporter_lookup")
         root = root.with_reporter_exact_lookup(
             ReporterExactLookup(
                 node_id=root.nodes[-1].id,
@@ -91,9 +91,11 @@ def rooted(tail, *, validate=True):
                 ),
             )
         )
-        document = document.replace_citation(root).complete_substage("11_reporter_lookup")
-        root = root.record("14_root_validation").with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-        document = document.replace_citation(root).complete_substage("14_root_validation")
+        document = document.replace_citation(root).complete_substage("stage_11_reporter_lookup")
+        root = root.record("stage_14_root_validation").with_identity_judgment(
+            IdentityVerdict.CORRECT_IDENTITY
+        )
+        document = document.replace_citation(root).complete_substage("stage_14_root_validation")
     return document
 
 
@@ -673,7 +675,7 @@ def test_same_quote_replacement_records_grounding_without_duplicate_field_readin
 
 
 def test_retrieval_only_root_does_not_trigger_validation_assistance():
-    document = rooted("See Smith, 347 U.S. at 999.").get_substage("11_reporter_lookup")
+    document = rooted("See Smith, 347 U.S. at 999.").get_substage("stage_11_reporter_lookup")
     before = short(document, name="Smith", pin="999").complete_substage(
         "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )

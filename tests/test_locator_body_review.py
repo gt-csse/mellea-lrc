@@ -792,7 +792,7 @@ def test_one_source_copy_passage_excludes_all_occurrences_from_its_body() -> Non
         number_span=Span(source.index("05-4206"), source.index("05-4206") + len("05-4206")),
     )
     document = Document.from_source(source).add_citation(root).complete_substage("sites")
-    root = root.record("copy-review")
+    root = root.record("copy_review")
     root = root.with_body_search(
         BodySearch(
             node_id=root.nodes[-1].id,

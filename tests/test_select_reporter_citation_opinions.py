@@ -29,14 +29,14 @@ from mellea_lrc.model.citations.reporter_page_resolution import (
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
+from mellea_lrc.validation.index_reporter_root_opinion_pages import index_reporter_root_opinion_pages
+from mellea_lrc.validation.resolve_reporter_citation_pages import resolve_reporter_citation_pages
 from mellea_lrc.validation.select_reporter_citation_opinions import (
     SOURCE_SUBSTAGE,
     SUBSTAGE,
     select_reporter_citation_opinions,
 )
 from mellea_lrc.validation.select_reporter_citation_opinions import reviewer as service
-from mellea_lrc.validation.resolve_reporter_citation_pages import resolve_reporter_citation_pages
-from mellea_lrc.validation.index_reporter_root_opinion_pages import index_reporter_root_opinion_pages
 
 
 def _span(source, quote):
@@ -286,17 +286,17 @@ def test_actual_page_resolver_and_inherited_id_supply_effective_readings_to_revi
 
 def test_review_points_to_latest_absolute_resolution_index():
     before = _fixture(root_outcome=ReporterPageResolutionOutcome.RESOLVED)
-    leaf = before.citations[1].record("41.1_page_revision")
+    leaf = before.citations[1].record("stage_41_1_page_revision")
     resolution = leaf.reporter_page_resolutions[-1].model_copy(update={"node_id": leaf.nodes[-1].id})
     before = before.replace_citation(leaf.with_reporter_page_resolution(resolution)).complete_substage(
-        "41.1_page_revision"
+        "stage_41_1_page_revision"
     )
     reviewer = Reviewer({"leaf": _decision((0, 1))})
 
     after = asyncio.run(select_reporter_citation_opinions(before, reviewer=reviewer))
 
     assert after.citations[1].reporter_opinion_reviews[-1].resolution_index == 1
-    assert after.get_substage("41.1_page_revision") == before
+    assert after.get_substage("stage_41_1_page_revision") == before
 
 
 @pytest.mark.parametrize(
