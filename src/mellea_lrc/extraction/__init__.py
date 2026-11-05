@@ -1,6 +1,6 @@
 """Citation extraction from Layer 2 preprocessed legal text.
 
-Three entrypoints, differing only in where the text comes from:
+The existing extraction entrypoints differ in where the text comes from:
 
 ``extract``
     The front door. A :class:`str` is content, a :class:`~pathlib.Path` is a
@@ -12,12 +12,14 @@ Three entrypoints, differing only in where the text comes from:
 ``extract_from_raw_document``
     A file on disk, preprocessed first by the backend its format calls for.
 
-There is deliberately no entrypoint taking a ``PreprocessedDocument``. Nothing
-serializes one, so it cannot cross a process boundary, and a caller holding one
-is already inside the library.
+The native ``find_full_reporter_locators`` and ``find_docket_locators``
+substages take an immutable :class:`mellea_lrc.model.Document` and return a new
+document with source-grounded locator occurrences and a replayable checkpoint.
 """
 
 from mellea_lrc.extraction.eyecite_extractor import extract_from_plain_text
+from mellea_lrc.extraction.find_docket_locators import find_docket_locators
+from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
 from mellea_lrc.extraction.pipeline import extract, extract_from_raw_document
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
@@ -34,4 +36,6 @@ __all__ = [
     "extract",
     "extract_from_plain_text",
     "extract_from_raw_document",
+    "find_docket_locators",
+    "find_full_reporter_locators",
 ]

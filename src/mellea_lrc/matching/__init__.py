@@ -1,0 +1,1 @@
+"""Deterministic text-matching helpers."""
