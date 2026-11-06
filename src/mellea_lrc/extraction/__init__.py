@@ -21,6 +21,7 @@ from mellea_lrc.extraction.eyecite_extractor import extract_from_plain_text
 from mellea_lrc.extraction.find_docket_locators import find_docket_locators
 from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
 from mellea_lrc.extraction.pipeline import extract, extract_from_raw_document
+from mellea_lrc.extraction.resolve_colocations import resolve_colocations
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
     ExtractedDocument,
@@ -38,4 +39,5 @@ __all__ = [
     "extract_from_raw_document",
     "find_docket_locators",
     "find_full_reporter_locators",
+    "resolve_colocations",
 ]

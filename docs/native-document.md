@@ -154,4 +154,35 @@ assert restored.get_substage(docket_substage) == discovered
 
 Each call commits its named substage even when it finds no locators. A completed substage cannot run again. These native discovery functions are separate from the existing `extract()` API described in [Extraction](Extraction.md).
 
+## Colocations and source windows
+
+`resolve_colocations()` gives adjacent full locators a shared parsing context, separate from case identity. Group assignments append to each citation's history; `document.colocations` derives the current groups. The substage uses the conservative `stable()` rules and saves a replayable checkpoint.
+
+`before()` and `after()` return a text window and its source offset. Every member uses the group's outer edges, bounded by the nearest other full locator and the requested character limit.
+
+```python
+from mellea_lrc.config.extraction import stable
+from mellea_lrc.extraction import find_full_reporter_locators, resolve_colocations
+from mellea_lrc.model import Document, PreprocessedDocument, PreprocessingMetadata, SourceMetadata
+from mellea_lrc.model.citation_windows import after, before
+
+document = Document.from_preprocessed(
+    PreprocessedDocument(
+        text="Smith v. Jones, 347 U.S. 483, 74 S. Ct. 686 (1954).",
+        source_metadata=SourceMetadata(path="filing.txt"),
+        preprocessing_metadata=PreprocessingMetadata(),
+    )
+)
+discovered = find_full_reporter_locators(document)
+grouped = resolve_colocations(discovered, rules=stable())
+first, second = grouped.citations
+
+assert grouped.colocations[0].citation_ids == (first.id, second.id)
+assert before(grouped, second, 160) == ("Smith v. Jones, ", 0)
+assert after(grouped, first, 120)[0] == " (1954)."
+restored = Document.model_validate_json(grouped.model_dump_json())
+assert restored.get_substage("grow_roots.read_root_fields.resolve_colocations") == grouped
+assert restored.get_substage("grow_roots.discover_root_locators.find_full_reporter_locators") == discovered
+```
+
 Contextual field reading, root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
