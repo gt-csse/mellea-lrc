@@ -1,5 +1,6 @@
 """Native document, source, and checkpoint models."""
 
+from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.execution import CheckpointRun
 from mellea_lrc.model.preprocessed_document import (
@@ -16,6 +17,7 @@ from mellea_lrc.model.span import Span
 __all__ = [
     "DEFAULT_RULES",
     "CheckpointRun",
+    "Colocation",
     "Document",
     "DocumentBase",
     "PreprocessedDocument",

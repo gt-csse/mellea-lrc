@@ -9,6 +9,8 @@ from pydantic import TypeAdapter, field_validator, model_validator
 
 from mellea_lrc.model.citations import FullCitationVariant
 from mellea_lrc.model.citations.full import FullCitation
+from mellea_lrc.model.citations.history import latest
+from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.execution import CheckpointRun
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 
@@ -30,6 +32,21 @@ class Document(PreprocessedDocument):
     def substage_runs(self) -> tuple[str, ...]:
         """Completed atomic runs in their persisted event order."""
         return tuple(run.name for run in self.runs)
+
+    @property
+    def full_locators(self) -> tuple[FullCitationVariant, ...]:
+        """Full reporter and docket occurrences in source order."""
+        return self.citations
+
+    @property
+    def colocations(self) -> tuple[Colocation, ...]:
+        """Derive current parsing groups from citation assignment histories."""
+        groups: dict[str, list[str]] = {}
+        for citation in self.full_locators:
+            group_id = latest(citation.colocation_id)
+            if group_id is not None:
+                groups.setdefault(group_id, []).append(citation.id)
+        return tuple(Colocation(id=group_id, citation_ids=tuple(ids)) for group_id, ids in groups.items())
 
     def _ensure_substage_open(self, substage: str) -> None:
         if substage in self.substage_runs:
@@ -151,4 +168,28 @@ class Document(PreprocessedDocument):
                 if position < previous:
                     raise ValueError("Citation nodes cannot move backward across substage runs")
                 previous = position
+        return self
+
+    @model_validator(mode="after")
+    def _validate_colocations(self) -> Self:
+        """Every completed checkpoint must retain whole parsing groups."""
+        positions = {name: index for index, name in enumerate(self.substage_runs)}
+        for cutoff in range(len(self.substage_runs)):
+            sizes: dict[str, int] = {}
+            for citation in self.full_locators:
+                node_positions = {
+                    node.id: positions.get(node.substage, len(positions)) for node in citation.nodes
+                }
+                group_id = next(
+                    (
+                        update.value
+                        for update in reversed(citation.colocation_id)
+                        if node_positions[update.node_id] <= cutoff
+                    ),
+                    None,
+                )
+                if group_id is not None:
+                    sizes[group_id] = sizes.get(group_id, 0) + 1
+            if any(size < 2 for size in sizes.values()):
+                raise ValueError("A colocation group needs at least two citations")
         return self
