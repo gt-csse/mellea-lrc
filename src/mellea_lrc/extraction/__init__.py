@@ -21,6 +21,7 @@ Native colocation and field-reading substages extend the same document history.
 from mellea_lrc.extraction.eyecite_extractor import extract_from_plain_text
 from mellea_lrc.extraction.find_docket_locators import find_docket_locators
 from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
+from mellea_lrc.extraction.form_roots import form_roots
 from mellea_lrc.extraction.pipeline import extract, extract_from_raw_document
 from mellea_lrc.extraction.resolve_case_names import resolve_case_names
 from mellea_lrc.extraction.resolve_colocations import resolve_colocations
@@ -45,6 +46,7 @@ __all__ = [
     "extract_from_raw_document",
     "find_docket_locators",
     "find_full_reporter_locators",
+    "form_roots",
     "resolve_case_names",
     "resolve_colocations",
     "resolve_courts",
