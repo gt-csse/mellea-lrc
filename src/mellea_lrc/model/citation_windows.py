@@ -9,6 +9,9 @@ from mellea_lrc.model.document import Document
 
 def _members(document: Document, citation: FullCitationVariant) -> tuple[FullCitationVariant, ...]:
     """Return citations in the same colocation as this citation."""
+    current = next((item for item in document.full_locators if item.id == citation.id), None)
+    if current != citation:
+        raise ValueError("Citation must belong to this document state")
     colocation_id = latest(citation.colocation_id)
     if colocation_id is None:
         return (citation,)
@@ -19,6 +22,8 @@ def _members(document: Document, citation: FullCitationVariant) -> tuple[FullCit
 
 def before(document: Document, citation: FullCitationVariant, limit: int) -> tuple[str, int]:
     """Return text before the citation's colocated locator group, bounded by adjacent locators."""
+    if limit < 0:
+        raise ValueError("Window limit must be nonnegative")
     members = _members(document, citation)
     first = min(item.locator_span.start for item in members)
     member_ids = {member.id for member in members}
@@ -36,6 +41,8 @@ def before(document: Document, citation: FullCitationVariant, limit: int) -> tup
 
 def after(document: Document, citation: FullCitationVariant, limit: int) -> tuple[str, int]:
     """Return text after the citation's colocated locator group, bounded by adjacent locators."""
+    if limit < 0:
+        raise ValueError("Window limit must be nonnegative")
     members = _members(document, citation)
     last = max(item.locator_span.end for item in members)
     member_ids = {member.id for member in members}

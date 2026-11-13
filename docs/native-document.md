@@ -159,3 +159,31 @@ assert restored.get_substage(docket_substage) == discovered
 ```
 
 Each call commits its named substage even when it finds no locators. A completed substage cannot run again. These writers form the locator-discovery step of `grow_roots`, before contextual fields and root groups are resolved. See [Extraction](Extraction.md) for the complete workflow.
+
+## Colocations and source windows
+
+`resolve_colocations()` groups adjacent locator occurrences that share a parsing context. The group is a source relationship. Root formation records case identity relationships separately. The colocation substage uses `stable()` rules by default and retains a replayable checkpoint.
+
+`before()` and `after()` return a text window and its source offset. Each member uses the group's outer edges, bounded by the nearest other full locator and the requested character limit.
+
+```python
+from mellea_lrc.extraction import find_full_reporter_locators, resolve_colocations
+from mellea_lrc.model import Document, PreprocessedDocument, PreprocessingMetadata, SourceMetadata
+from mellea_lrc.model.citation_windows import after, before
+
+document = Document.from_preprocessed(
+    PreprocessedDocument(
+        text="Smith v. Jones, 347 U.S. 483, 74 S. Ct. 686 (1954).",
+        source_metadata=SourceMetadata(path="filing.txt"),
+        preprocessing_metadata=PreprocessingMetadata(),
+    )
+)
+discovered = find_full_reporter_locators(document)
+grouped = resolve_colocations(discovered)
+first, second = grouped.citations
+
+assert grouped.colocations[0].citation_ids == (first.id, second.id)
+assert before(grouped, second, 160) == ("Smith v. Jones, ", 0)
+assert after(grouped, first, 120)[0] == " (1954)."
+assert grouped.get_substage("grow_roots.discover_root_locators.find_full_reporter_locators") == discovered
+```
