@@ -185,4 +185,41 @@ assert restored.get_substage("grow_roots.read_root_fields.resolve_colocations") 
 assert restored.get_substage("grow_roots.discover_root_locators.find_full_reporter_locators") == discovered
 ```
 
-Contextual field reading, root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
+## Deterministic field reading
+
+The native field readers append source-grounded names, courts, dates, pinpoints, and docket entries to the discovered citations. Names, courts, and dates use the shared colocation context. A pinpoint is read next to its own locator, and a docket entry is attached only when it has an unambiguous adjacent owner. Each reader saves its own checkpoint.
+
+```python
+from mellea_lrc.extraction import (
+    find_docket_locators,
+    find_full_reporter_locators,
+    resolve_case_names,
+    resolve_colocations,
+    resolve_courts,
+    resolve_dates,
+    resolve_docket_entries,
+    resolve_pin_cites,
+)
+from mellea_lrc.model import Document, PreprocessedDocument, PreprocessingMetadata, SourceMetadata
+
+source = PreprocessedDocument(
+    text="Alpha v. Beta, No. 1:24-cv-00123, 2024 WL 1234567, at *5 (D. Ariz. 2024).",
+    source_metadata=SourceMetadata(path="filing.txt"),
+    preprocessing_metadata=PreprocessingMetadata(),
+)
+discovered = find_docket_locators(find_full_reporter_locators(Document.from_preprocessed(source)))
+grouped = resolve_colocations(discovered)
+readings = resolve_docket_entries(grouped)
+for read in (resolve_case_names, resolve_courts, resolve_dates, resolve_pin_cites):
+    readings = read(readings)
+
+docket, reporter = readings.full_locators
+assert docket.case_name[-1].quote == reporter.case_name[-1].quote == "Alpha v. Beta"
+assert docket.court[-1].quote == reporter.court[-1].quote == "D. Ariz."
+assert docket.date[-1].quote == reporter.date[-1].quote == "2024"
+assert docket.get_pin_cite() is None
+assert reporter.pin_cite[-1].quote == "*5"
+assert readings.get_substage(grouped.substage_runs[-1]) == grouped
+```
+
+Root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
