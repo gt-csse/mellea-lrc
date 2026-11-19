@@ -222,4 +222,32 @@ assert reporter.pin_cite[-1].quote == "*5"
 assert readings.get_substage(grouped.substage_runs[-1]) == grouped
 ```
 
-Root graphs, grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
+## Citation roots
+
+`form_roots()` groups full citations by matching normalized reporter locators or matching docket numbers with the same normalized court. The first occurrence in each group represents the root. Every occurrence retains its own source span and field history, and each root assignment is recorded under a decision node.
+
+An unresolved reporter locator or a docket number without a known court forms a separate root. Run the court reader before forming roots. Colocations supply parsing context, while root grouping uses the locator and court readings.
+
+```python
+from mellea_lrc.extraction import find_full_reporter_locators, form_roots, resolve_colocations, resolve_courts
+from mellea_lrc.model import Document, PreprocessedDocument, PreprocessingMetadata, SourceMetadata
+from mellea_lrc.model.citations import latest
+
+source = PreprocessedDocument(
+    text="See 347 U.S. 483. Later, 347 U.S. 483.",
+    source_metadata=SourceMetadata(path="filing.txt"),
+    preprocessing_metadata=PreprocessingMetadata(),
+)
+grouped = resolve_colocations(find_full_reporter_locators(Document.from_preprocessed(source)))
+result = form_roots(resolve_courts(grouped))
+first, second = result.citations
+
+assert result.roots == (first,)
+assert latest(second.root_id) == first.id
+assert first.locator_span != second.locator_span
+restored = Document.model_validate_json(result.model_dump_json())
+assert restored.get_substage("grow_roots.read_root_fields.resolve_colocations") == grouped
+assert restored.get_substage("grow_roots.form_root_groups.form_roots") == result
+```
+
+Grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.

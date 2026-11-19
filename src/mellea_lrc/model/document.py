@@ -39,6 +39,11 @@ class Document(PreprocessedDocument):
         return self.citations
 
     @property
+    def roots(self) -> tuple[FullCitationVariant, ...]:
+        """Full citations that currently represent their root groups."""
+        return tuple(citation for citation in self.full_locators if latest(citation.root_id) == citation.id)
+
+    @property
     def colocations(self) -> tuple[Colocation, ...]:
         """Derive current parsing groups from citation assignment histories."""
         groups: dict[str, list[str]] = {}
@@ -192,4 +197,37 @@ class Document(PreprocessedDocument):
                     sizes[group_id] = sizes.get(group_id, 0) + 1
             if any(size < 2 for size in sizes.values()):
                 raise ValueError("A colocation group needs at least two citations")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_roots(self) -> Self:
+        """Every completed checkpoint must have direct links to roots."""
+        updates: dict[str, dict[str, str | None]] = {}
+        discoveries: dict[str, set[str]] = {}
+        for citation in self.full_locators:
+            discoveries.setdefault(citation.nodes[0].substage, set()).add(citation.id)
+            substages = {node.id: node.substage for node in citation.nodes}
+            for update in citation.root_id:
+                assignments = updates.setdefault(substages[update.node_id], {})
+                assignments[citation.id] = update.value
+
+        citation_ids = {citation.id for citation in self.full_locators}
+        if any(
+            root is not None and root not in citation_ids
+            for assignments in updates.values()
+            for root in assignments.values()
+        ):
+            raise ValueError("Citation attachment refers to an unknown root")
+
+        roots: dict[str, str | None] = {}
+        discovered: set[str] = set()
+        grouped = False
+        for substage in self.substage_runs:
+            discovered.update(discoveries.get(substage, ()))
+            roots.update(updates.get(substage, {}))
+            if any(root is not None and roots.get(root) != root for root in roots.values()):
+                raise ValueError("Citation attachment must point to a self-root at each checkpoint")
+            grouped = grouped or substage == "grow_roots.form_root_groups.form_roots"
+            if grouped and any(roots.get(citation_id) is None for citation_id in discovered):
+                raise ValueError("Each discovered citation must have a root after root formation")
         return self

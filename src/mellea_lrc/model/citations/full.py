@@ -21,6 +21,13 @@ class FullCitation(Citation):
     court: tuple[CourtField | NotStatedField, ...] = ()
     date: tuple[DateField | NotStatedField, ...] = ()
     colocation_id: tuple[RelationshipUpdate[str | None], ...] = ()
+    root_id: tuple[RelationshipUpdate[str | None], ...] = ()
+
+    def with_root(self, root_id: str | None) -> Self:
+        """Append a root assignment under the current decision node."""
+        return self._with_log(
+            root_id=(*self.root_id, RelationshipUpdate(value=root_id, node_id=self._decision_node_id()))
+        )
 
     def with_colocation(self, group_id: str) -> Self:
         """Append a parsing-group assignment under the current decision node."""
