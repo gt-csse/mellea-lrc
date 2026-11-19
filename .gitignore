@@ -40,3 +40,4 @@ paper/
 
 .playwright*
 
+tmp/
