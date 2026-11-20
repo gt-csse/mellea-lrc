@@ -38,6 +38,14 @@ classifiers = [
 [project.license]
 text = "MIT"
 
+[project.optional-dependencies]
+ml-cite = [
+    "torch>=2.6,<3",
+    "transformers>=4.51.3,<6",
+    "huggingface-hub>=0.30,<2",
+    "safetensors>=0.5,<1",
+]
+
 [project.urls]
 Homepage = "https://github.com/gt-csse/mellea-lrc"
 Documentation = "https://github.com/gt-csse/mellea-lrc"

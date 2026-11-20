@@ -2718,6 +2718,14 @@ dependencies = [
     { name = "requests" },
 ]
 
+[package.optional-dependencies]
+ml-cite = [
+    { name = "huggingface-hub" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "autogitsemver" },
@@ -2758,11 +2766,16 @@ preprocessing = [
 requires-dist = [
     { name = "courts-db", specifier = ">=0.10.27,<0.11" },
     { name = "eyecite", specifier = ">=2.7,<3" },
+    { name = "huggingface-hub", marker = "extra == 'ml-cite'", specifier = ">=0.30,<2" },
     { name = "pyahocorasick", specifier = ">=2.3,<3" },
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "reporters-db", specifier = ">=3.2,<4" },
     { name = "requests", specifier = ">=2.32,<3" },
+    { name = "safetensors", marker = "extra == 'ml-cite'", specifier = ">=0.5,<1" },
+    { name = "torch", marker = "extra == 'ml-cite'", specifier = ">=2.6,<3" },
+    { name = "transformers", marker = "extra == 'ml-cite'", specifier = ">=4.51.3,<6" },
 ]
+provides-extras = ["ml-cite"]
 
 [package.metadata.requires-dev]
 dev = [
