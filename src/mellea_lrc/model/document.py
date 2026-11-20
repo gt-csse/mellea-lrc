@@ -11,7 +11,7 @@ from mellea_lrc.model.citations import FullCitationVariant
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.colocation import Colocation
-from mellea_lrc.model.execution import CheckpointRun
+from mellea_lrc.model.execution import GROW_ROOTS_RUNS, CheckpointRun, grow_roots_runs
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 
 _FULL_CITATION = TypeAdapter(FullCitationVariant)
@@ -31,7 +31,12 @@ class Document(PreprocessedDocument):
     @property
     def substage_runs(self) -> tuple[str, ...]:
         """Completed atomic runs in their persisted event order."""
-        return tuple(run.name for run in self.runs)
+        return tuple(run.name for run in self.runs if run.kind == "substage")
+
+    @property
+    def stage_runs(self) -> tuple[str, ...]:
+        """Completed stage boundaries in their persisted event order."""
+        return tuple(run.name for run in self.runs if run.kind == "stage")
 
     @property
     def full_locators(self) -> tuple[FullCitationVariant, ...]:
@@ -113,14 +118,32 @@ class Document(PreprocessedDocument):
         run = CheckpointRun(name=substage)
         return type(self).model_validate({**self.model_dump(mode="python"), "runs": (*self.runs, run)})
 
+    def complete_stage(self, stage: str) -> Self:
+        """Commit a stage after all its atomic checkpoints are complete."""
+        if stage in self.stage_runs:
+            raise ValueError(f"Stage already completed: {stage}")
+        if self._pending_substages():
+            raise ValueError("Complete the pending substage before completing a stage")
+        run = CheckpointRun(kind="stage", name=stage)
+        return type(self).model_validate({**self.model_dump(mode="python"), "runs": (*self.runs, run)})
+
     def get_substage(self, substage: str) -> Self:
         """Reconstruct exactly the document at a completed substage boundary."""
+        return self._get_checkpoint("substage", substage)
+
+    def get_stage(self, stage: str) -> Self:
+        """Reconstruct exactly the document at a completed stage boundary."""
+        return self._get_checkpoint("stage", stage)
+
+    def _get_checkpoint(self, kind: str, name: str) -> Self:
         try:
-            cutoff = self.substage_runs.index(substage) + 1
-        except ValueError as exc:
-            raise KeyError(f"Substage has not run: {substage}") from exc
+            cutoff = next(
+                index + 1 for index, run in enumerate(self.runs) if run.kind == kind and run.name == name
+            )
+        except StopIteration as exc:
+            raise KeyError(f"{kind.capitalize()} has not run: {name}") from exc
         runs = self.runs[:cutoff]
-        included = {run.name for run in runs}
+        included = {run.name for run in runs if run.kind == "substage"}
         citations: list[FullCitationVariant] = []
         for citation in self.citations:
             count = 0
@@ -162,6 +185,10 @@ class Document(PreprocessedDocument):
         names = self.substage_runs
         if len(set(names)) != len(names):
             raise ValueError("Substage runs must be unique")
+        if self.stage_runs:
+            history = grow_roots_runs(self.runs)
+            if history != GROW_ROOTS_RUNS[: len(history)]:
+                raise ValueError("Stage runs must follow completed substages in grow_roots workflow order")
         pending = self._pending_substages()
         if len(pending) > 1:
             raise ValueError("Only one substage may have pending citation changes")
