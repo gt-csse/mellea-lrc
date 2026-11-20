@@ -92,8 +92,8 @@ class Document(PreprocessedDocument):
         for name in type(citation).model_fields:
             if name in {"id", "kind", "nodes"}:
                 continue
-            prior = getattr(original, name) or ()
-            current = getattr(citation, name) or ()
+            prior = original._reading_entries(name)
+            current = citation._reading_entries(name)
             if current[: len(prior)] != prior:
                 raise ValueError(f"Citation {name} must be append-only")
             if any(reading.node_id not in new_nodes for reading in current[len(prior) :]):

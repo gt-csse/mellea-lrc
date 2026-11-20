@@ -79,6 +79,10 @@ Quoted readings, inferred courts, and explicit absence decisions remain distinct
 
 Docket citations additionally retain entry readings and support rereading the number within the same written locator. Loading checks node ownership, history order, and each locator's fixed source site. `validate_source()` checks every historical field quote against the owning text, including readings superseded by corrections or absence.
 
+## Model field predictions
+
+A citation can retain one `MLFieldReading` under a decision node. The reading records the model, revision, variant, context span, and any predicted case name, court, date, or pinpoint spans. The document checks each span against the source and requires the context to contain the citation's locator. The raw prediction remains separate from normalized field histories and is available when replaying its substage.
+
 ## Document collections and replayable checkpoints
 
 `Document.from_preprocessed()` carries the source text and its provenance into an ordered collection of full citations. `add_citation()` and `replace_citation()` return new documents. The collection checks citation IDs, source order, every historical quote, and append-only decision and reading histories. New readings belong to new decision nodes.
