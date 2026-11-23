@@ -15,6 +15,7 @@ from mellea_lrc.model.citations.fields import (
 )
 from mellea_lrc.model.citations.fields.base import CitationField, NotStatedField, current_reading
 from mellea_lrc.model.citations.history import Node
+from mellea_lrc.model.citations.ml_field_reading import MLFieldPrediction, MLFieldReading
 from mellea_lrc.model.span import Span
 
 
@@ -28,6 +29,7 @@ class Citation(BaseModel):
     nodes: tuple[Node, ...]
     case_name: tuple[CaseNameField | NotStatedField, ...] = ()
     pin_cite: Annotated[tuple[PinCiteField | NotStatedField, ...], Field(min_length=1)] | None = None
+    ml_field_reading: MLFieldReading | None = None
 
     @property
     def site_span(self) -> Span:
@@ -48,6 +50,13 @@ class Citation(BaseModel):
         """Revalidate every immutable update, including ownership and ordering."""
         return type(self).model_validate({**self.model_dump(mode="python"), **logs})
 
+    def _reading_entries(self, name: str):
+        """Iterate a field's node-bound entries regardless of stored cardinality."""
+        value = getattr(self, name)
+        if value is None or isinstance(value, tuple):
+            return value or ()
+        return (value,)
+
     def _through_node_count(self, count: int) -> Self:
         """Recover the citation and its readings through a decision boundary."""
         if not 1 <= count <= len(self.nodes):
@@ -58,9 +67,28 @@ class Citation(BaseModel):
         for name, field in type(self).model_fields.items():
             if name in {"id", "kind", "nodes"}:
                 continue
-            retained = tuple(reading for reading in getattr(self, name) or () if reading.node_id in node_ids)
-            data[name] = retained if retained else field.get_default()
+            retained = tuple(
+                reading for reading in self._reading_entries(name) if reading.node_id in node_ids
+            )
+            if isinstance(getattr(self, name), MLFieldReading):
+                data[name] = retained[0] if retained else None
+            else:
+                data[name] = retained if retained else field.get_default()
         return type(self).model_validate(data)
+
+    def with_ml_field_reading(self, result: MLFieldReading) -> Self:
+        """Save raw model spans under the current decision node."""
+        if result.node_id != self._decision_node_id():
+            raise ValueError("ML field reading must point to the current decision node")
+        if self.ml_field_reading is not None:
+            raise ValueError("ML field reading is already recorded")
+        return self._with_log(ml_field_reading=result)
+
+    def get_ml_field_prediction(self) -> MLFieldPrediction:
+        """Return the saved model prediction for this occurrence."""
+        if self.ml_field_reading is None:
+            raise ValueError("ML field prediction is unavailable")
+        return self.ml_field_reading.prediction
 
     def with_case_name(self, source: str, span: Span, *, normalized: CaseName | None = None) -> Self:
         """Append an exact source quote with deterministic or model normalization."""
@@ -101,10 +129,11 @@ class Citation(BaseModel):
         for name in type(self).model_fields:
             if name in {"id", "kind", "nodes"}:
                 continue
-            log = getattr(self, name)
-            for reading in log or ():
+            for reading in self._reading_entries(name):
                 if isinstance(reading, CitationField):
                     reading.validate_source(source)
+                elif isinstance(reading, MLFieldReading):
+                    reading.prediction.validate_source(source, self.site_span)
 
     @model_validator(mode="after")
     def _validate_history(self) -> Self:
@@ -120,7 +149,7 @@ class Citation(BaseModel):
             if name in {"id", "kind", "nodes"}:
                 continue
             previous = -1
-            for reading in getattr(self, name) or ():
+            for reading in self._reading_entries(name):
                 position = positions.get(reading.node_id)
                 if position is None:
                     raise ValueError(f"{name} refers to a missing node")
