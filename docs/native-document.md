@@ -250,4 +250,19 @@ assert restored.get_substage("grow_roots.read_root_fields.resolve_colocations") 
 assert restored.get_substage("grow_roots.form_root_groups.form_roots") == result
 ```
 
-Grouped stage/workflow definitions, short-form locator fields, and pipeline integration follow in later PRs.
+## The native root workflow
+
+`grow_roots()` discovers full locators, reads their fields, and assigns them to roots. It records a checkpoint after each substage and after each of the three stages. Use `get_substage()` or `get_stage()` to replay the exact document at that boundary.
+
+```python
+from mellea_lrc.model import Document
+from mellea_lrc.workflows import grow_roots
+
+checkpoints = []
+roots = grow_roots(document, checkpoint=checkpoints.append)
+saved = roots.get_stage("grow_roots.discover_root_locators")
+restored = Document.model_validate_json(saved.model_dump_json())
+assert grow_roots(restored) == roots
+```
+
+Pass a callback to save each checkpoint as it completes. Resume with the same extraction rules and a completed prefix of the workflow. The atomic readers remain available for custom sequences.
