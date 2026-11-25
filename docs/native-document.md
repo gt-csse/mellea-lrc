@@ -83,6 +83,12 @@ Docket citations additionally retain entry readings and support rereading the nu
 
 A citation can retain one `MLFieldReading` under a decision node. The reading records the model, revision, variant, context span, and any predicted case name, court, date, or pinpoint spans. The document checks each span against the source and requires the context to contain the citation's locator. The raw prediction remains separate from normalized field histories and is available when replaying its substage.
 
+### ML-cite span reader
+
+Install the optional reader with `uv sync --extra ml-cite`. The `mellea_lrc.extraction.field_readers.ml_cite` package provides `get_ml_reader()` and `MLReaderConfig`. Set the checkpoint repository or local directory, revision, variant, device, context sizes, and batch size in the config. `predict_many(source, locators)` returns one `MLFieldPrediction` per locator in input order. Each prediction uses offsets in the original document text.
+
+The reader loads a checkpoint on first use and reuses it for later batches with the same configuration. It reduces oversized context windows while keeping the target locator intact. Rule-based extraction can run without loading the optional reader or its model dependencies.
+
 ## Document collections and replayable checkpoints
 
 `Document.from_preprocessed()` carries the source text and its provenance into an ordered collection of full citations. `add_citation()` and `replace_citation()` return new documents. The collection checks citation IDs, source order, every historical quote, and append-only decision and reading histories. New readings belong to new decision nodes.
