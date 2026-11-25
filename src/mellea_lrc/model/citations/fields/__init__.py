@@ -7,6 +7,7 @@ from mellea_lrc.model.citations.fields.date import CitationDate, DateField
 from mellea_lrc.model.citations.fields.docket import DocketEntryField, DocketLocatorValue, FullDocketLocator
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteField, PinCiteKind, PinCiteTarget, PinCiteValue
 from mellea_lrc.model.citations.fields.reporter import FullReporterLocator, ReporterLocatorValue
+from mellea_lrc.model.citations.fields.short_reporter import ShortReporterLocator, ShortReporterLocatorValue
 
 __all__ = [
     "CaseName",
@@ -27,5 +28,7 @@ __all__ = [
     "PinCiteTarget",
     "PinCiteValue",
     "ReporterLocatorValue",
+    "ShortReporterLocator",
+    "ShortReporterLocatorValue",
     "current_reading",
 ]

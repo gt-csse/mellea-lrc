@@ -276,3 +276,19 @@ assert grow_roots(restored) == roots
 ```
 
 Pass a callback to save each checkpoint as it completes. Resume with the same extraction rules and a completed prefix of the workflow. The atomic readers remain available for custom sequences.
+
+## Short reporter locators
+
+`short_reporter_readings()` finds written short reporter locators such as `347 U.S. at 489`, using the same tokenizer as full reporter discovery. `ShortReporterLocator` retains the exact quote and span and normalizes the volume and reporter edition. A pinpoint can be read separately with `PinCiteField`.
+
+```python
+from mellea_lrc.model import Span
+from mellea_lrc.model.citations.fields import ShortReporterLocator
+from mellea_lrc.parsing.reporters import short_reporter_readings
+
+text = "See 347  U. S. at 489–90."
+(reading,) = short_reporter_readings(text)
+locator = ShortReporterLocator.from_source(text, Span(*reading.span), node_id="read-short-locator")
+assert locator.quote == "347  U. S. at 489–90"
+assert locator.get_normalized().edition == "U.S."
+```
